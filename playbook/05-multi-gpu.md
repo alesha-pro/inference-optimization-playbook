@@ -2,6 +2,8 @@
 
 Covers Qwen3.8-Flash-Next, GLM-5.3-Flash, DeepSeek V4/V4.1 Flash, MiniMax-M3.1-Flash, Hy4 Flash, all on 4x RTX 3090 with PCIe 3.0, P2P on and without NVLink.
 
+> **Read when:** there are 2 or more cards. **Skip when:** there is 1 card. **Ledger tags:** `#multi-gpu` `#layer-split` `#tp` `#ep`.
+
 ## Layer split (pipeline by layers)
 
 Strata and all our Maya forks for DeepSeek, GLM and MiniMax work this way. Layers are cut into contiguous pieces, the last card holds the head and the drafter. There is 1 hop between cards per token and no all-reduce. The main property for offload: **every card holds its own experts and pulls misses over its own PCIe link**.

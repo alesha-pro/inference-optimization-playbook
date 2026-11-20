@@ -2,6 +2,8 @@
 
 Covers Qwen3.8-Flash-Next, DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash. The CPU is an AMD EPYC 7642 (Zen 2, 48 cores, AVX2 without AVX-512, 16 CCX with 16 MB L3 each). RAM changed many times during the work, see [cases/README.md](../cases/README.md).
 
+> **Read when:** the CPU computes part of the experts, or the RAM, BIOS or DIMM layout changed. **Skip when:** the CPU computes almost nothing in decode. **Ledger tags:** `#cpu-lane` `#ram` `#numa` `#zen2`.
+
 ## RAM bandwidth shows only when the CPU is on the path
 
 | Case | Memory change | Effect |

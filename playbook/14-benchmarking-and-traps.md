@@ -2,6 +2,8 @@
 
 Covers all models. This chapter is about getting numbers you can trust. What counts as "quality preserved" is in [15](15-quality-and-release-gates.md).
 
+> **Read when:** always, before the first number. **Ledger tags:** every row.
+
 ## Build a reference before you optimize (Hy4 Flash)
 
 **What we did.** The first working llama.cpp build was the source of input IDs and intermediate values. For the new port we built a host F32 forward and compared the stages of a layer before moving compute to the GPU. Then we compared separately: a normal step, batch prefill, and the verify of several MTP proposals. If an error appears at the 5th position of a batch, single-token decode will not find it.

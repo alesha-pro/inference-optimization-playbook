@@ -2,6 +2,8 @@
 
 Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Qwen3.8-Flash-Next, Hy4 Flash.
 
+> **Read when:** reading the prompt is slow, on a cold input or on every turn. **Skip when:** the time goes to generation. **Ledger tags:** `#prefill` `#reread` `#long-context`.
+
 "Re-read" here means prefill of the new tokens on top of an already processed context. In agent work it is the common case ([11](11-sessions-and-prompt-cache.md)).
 
 ## What limits prefill under offload

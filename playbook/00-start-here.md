@@ -1,8 +1,71 @@
-# Start here
+# Start here: the map
 
-This playbook is a record of experiments. For every trick it says what the problem was, what changed, what the control showed, and when the test is worth repeating. The numbers belong to a specific model, engine and rig ([cases/README.md](../cases/README.md)). For transfer, what matters most is being able to reproduce the original bottleneck on your setup.
+This playbook is a record of experiments on 5 models. They behaved differently: a static hot set that worked on one model was no better than random on another, and the cheapest way to serve a miss flipped between models on the same hardware. So this is a map, and the first job is to find where you are on it.
 
-## Find your symptom
+For every trick the chapters say what the problem was, what changed, what the control showed, and when the test is worth repeating. The numbers belong to a specific model, engine and rig ([cases/README.md](../cases/README.md)). For transfer, what matters most is being able to reproduce the original bottleneck on your setup.
+
+## The route
+
+1. **Orient.** Fill the [situation card](../protocol/situation-card.md). It ends with a tag line such as `#offload #weak-skew #cpu-lane #multi-gpu #agent`.
+2. **Locate.** Answer the questions below, or enter by symptom. Each answer points to 1-2 chapters.
+3. **Filter.** Grep the [ledger](../ledger/hypotheses.md) by your tags to see what was already tried under your conditions, and open the closest [case](../cases/README.md).
+4. **Test.** Pick the cheapest test that reproduces the bottleneck and follow the [experiment rules](../protocol/experiment-rules.md).
+5. **Record.** Write the result down with the [entry template](../protocol/entry-template.md), failures included.
+
+There is no fixed order of chapters. 2 different models will take 2 different routes.
+
+## Entry by regime
+
+### Does the model fit in VRAM at a quant you accept?
+
+Compare the tensor sizes with VRAM minus KV, buffers and the drafter.
+
+- **It fits on 1 card** (`#in-vram #1gpu`). There are no misses, the time is the constant part. Go to the drafter ([08](08-speculative-decoding.md)), the output head ([13](13-output-head.md)) and sessions ([11](11-sessions-and-prompt-cache.md)). This playbook has little data of its own for this regime.
+- **It fits across several cards** (`#in-vram #multi-gpu`). Tensor parallel first, then the exchange between cards ([05](05-multi-gpu.md)), then the drafter. Closest case: GLM-5.3-Flash at 2.05 bpw.
+- **It does not fit** (`#offload`). Part of the experts go to RAM. Continue with the next question.
+
+### Which term of token time is larger: the constant part or the misses?
+
+Fit `time = a + b × misses` from 2-3 runs with different VRAM budgets for experts ([01](01-cost-model.md), [tools/fit_cost.py](../tools/fit_cost.py)).
+
+- **Misses dominate.** The next 2 questions (skew, and who serves a miss) decide what to do, and the quant ([09](09-quants.md)) decides how many experts fit.
+- **The constant part dominates.** Stop moving experts around. On DeepSeek, once the CPU part was ~10% of a round, 10 GB more VRAM for experts gave about +1.8% (calc). Work on kernels, the exchange between cards ([05](05-multi-gpu.md)) and the drafter ([08](08-speculative-decoding.md)).
+
+### Is routing skewed?
+
+Record a router trace and compare a static hot set with a random one at your budget ([tools/route_sim.py](../tools/route_sim.py)).
+
+- **Strong skew** (`#strong-skew`). A profile and static placement work ([03](03-expert-profile-and-placement.md)), with a live cache on top ([04](04-live-expert-cache.md)). Closest cases: DeepSeek V4.1 Flash, Qwen3.8-Flash-Next.
+- **Weak skew** (`#weak-skew`, the gap to random is under 10 points). The live cache is the main mechanism ([04](04-live-expert-cache.md)), drafter windows should be short ([08](08-speculative-decoding.md)), and fewer bits put more experts in VRAM ([09](09-quants.md)). Closest cases: MiniMax-M3.1-Flash, GLM-5.3-Flash.
+
+### Who serves a miss cheaper: the CPU or a copy over PCIe?
+
+Time 1 expert on the CPU under load, 1 expert copy over the bus and 1 full decode layer ([02](02-serving-a-miss.md)).
+
+- **The CPU** (`#cpu-lane`). Then RAM bandwidth, thread count and NUMA decide the speed ([06](06-cpu-and-ram.md)).
+- **The copy** (`#pcie`). Then a VRAM cache with eviction matters and RAM channels matter less ([02](02-serving-a-miss.md), [04](04-live-expert-cache.md)).
+
+### How many cards, and in which mode?
+
+Count the cards that improve decode on your load, then compare layer split with tensor parallel ([05](05-multi-gpu.md)). On Qwen the third and fourth card added only prefill.
+
+### What does the user feel as slow?
+
+- **Generation.** The questions above, then the drafter ([08](08-speculative-decoding.md)).
+- **The first read of a long input.** Prefill ([07](07-prefill.md)).
+- **Every turn of an agent.** Log a real session first: how much is generation, how much is re-read, what invalidates the prefix ([11](11-sessions-and-prompt-cache.md)). Then the re-read part of [07](07-prefill.md).
+- **Service start.** Loading and page cache ([12](12-loading-and-big-tables.md)).
+- **Pauses inside an answer, or a build that is faster on average and feels worse.** Release gates ([15](15-quality-and-release-gates.md)).
+
+### Is system RAM the limit?
+
+A big side table can leave pinned RAM for NVMe ([12](12-loading-and-big-tables.md)). Fewer bits for the experts come next ([09](09-quants.md)). Pruning is the last resort and needs a check on every domain ([10](10-pruning-and-merging.md)).
+
+### On any route
+
+Benchmark by [14](14-benchmarking-and-traps.md), gate quality by [15](15-quality-and-release-gates.md), and follow the [experiment rules](../protocol/experiment-rules.md).
+
+## Entry by symptom
 
 | What you see on your model | What to record first | Go to |
 |---|---|---|
@@ -23,7 +86,7 @@ This playbook is a record of experiments. For every trick it says what the probl
 | The answers of 2 builds diverged | The first difference on a fixed input, logits, the router and the snapshot boundary | [15 Quality and release gates](15-quality-and-release-gates.md) |
 | The candidate is faster on average but feels worse | The slowest input block, output windows, TTFT through the API | [15 Quality and release gates](15-quality-and-release-gates.md) |
 
-Have an idea already? Check the [hypothesis ledger](../ledger/hypotheses.md) first. Starting a new model? Follow the [protocol](../protocol/new-model-checklist.md).
+Have an idea already? Check the [hypothesis ledger](../ledger/hypotheses.md) first. Starting a new model from zero? The [checklist](../protocol/new-model-checklist.md) lists the steps that were useful in the order we would take them now.
 
 ## How to read the metrics
 

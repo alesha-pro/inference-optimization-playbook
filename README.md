@@ -1,13 +1,37 @@
 # Inference optimization playbook
 
-97 hypotheses about making huge LLMs fast on consumer GPUs, each one with a verdict: worked, failed, or works only under conditions. With the numbers and the reason.
+A map of 97 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
 
 It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash and Tencent Hy4 Flash on 4x RTX 3090 with experts offloaded to RAM. These models do not fit in 96 GB of VRAM at the quants we wanted. Engines: Strata, Maya forks, an exllamav3 fork, llama.cpp, vLLM, most of them patched by hand.
+
+| Model, setup | What changed | Before → after |
+|---|---|---|
+| DeepSeek V4.1 Flash, 4 cards | DMA from pinned RAM for every tensor format, layer skip on the prompt, auto chunk | prefill 32K: 430 → 2,199 tok/s |
+| DeepSeek V4.1 Flash, CPU path on Zen 2 | 1 build flag (PDEP runs in microcode there) | 1 cold expert: 1.6 → 0.44 ms |
+| Hy4 Flash, 1 card | 1 load of experts per block of up to 57,600 tokens, attention in tiles of 2,048 (full build) | prefill of 57,587 tokens: 415.6 → 1,510.2 tok/s |
+| Hy4 Flash, 2 cards | cold experts computed on the CPU in parallel with hot ones on the GPU | decode of short code: 24.6 → 70.4 tok/s |
+| Qwen3.8-Flash-Next, 1-2 cards | DFlash2 drafter | decode +44-46% |
+| Qwen3.8-Flash-Next, Russian | a Cyrillic draft vocabulary, no training | draft acceptance 32% → 54% |
+| MiniMax-M3.1-Flash | attention K/V gathered into VRAM once per chunk | prefill 64K ×3.3 |
+| GLM-5.3-Flash at 2.05 bpw, 4 cards | tensor parallel instead of layer split | 48.3 → 66-68 tok/s |
+
+And what did not work, which is most of the value:
+
+- "Keep the hot experts in VRAM" works on 2 of the first 4 models. On MiniMax a profile gives 64-69% hits and random placement gives 61% (sim).
+- Training a drafter on our own data gave little or nothing on 3 models.
+- A short benchmark promised +27% decode. Real generation gave +2%.
+- A drafter change matched on 4,400 tokens of the first turn and broke the second turn.
+
+## Why a map
+
+The 5 models behaved differently. The cheapest way to serve a miss flipped between models on the same hardware, tensor parallel lost on one and won on another, a long drafter window paid on skewed routing and not on flat routing. A fixed list of steps would be wrong for half of them.
+
+So the playbook is built for orientation. You describe your case, find its place, and see only the results that were obtained under the same conditions.
 
 It is written for 2 readers:
 
 - **People** who tune local inference and want to know what is worth trying before they spend a week on it.
-- **Coding agents** that do the tuning for them. The repo is a ready skill: an agent can find the symptom, read the chapter, check whether an idea was already tried and follow the protocol.
+- **Coding agents** that do the tuning for them. The repo root is a ready skill.
 
 The numbers are from one rig. Yours will be different. The mechanisms are the same on any box with GPUs, a CPU and RAM, and chapters 01-15 each end with a checklist for moving the idea to another model.
 
@@ -15,18 +39,20 @@ The numbers are from one rig. Yours will be different. The mechanisms are the sa
 
 | You want to | Open |
 |---|---|
-| Find your problem by symptom | [playbook/00-start-here.md](playbook/00-start-here.md) |
-| Check if an idea was already tried | [ledger/hypotheses.md](ledger/hypotheses.md) |
-| Bring up a new model step by step | [protocol/new-model-checklist.md](protocol/new-model-checklist.md) |
+| Describe your case and get its tags | [protocol/situation-card.md](protocol/situation-card.md) |
+| Find your place by regime or by symptom | [playbook/00-start-here.md](playbook/00-start-here.md) |
+| Check if an idea was already tried under your conditions | [ledger/hypotheses.md](ledger/hypotheses.md) |
 | See how it went on a model like yours | [cases/](cases/README.md) |
+| Run an experiment so the result means something | [protocol/experiment-rules.md](protocol/experiment-rules.md) |
+| Bring up a new model from zero | [protocol/new-model-checklist.md](protocol/new-model-checklist.md) |
 | Look up a term | [glossary.md](glossary.md) |
 
 ## What is inside
 
 ```
 playbook/    16 chapters by mechanism
-  00  start here: symptom table, 15 findings
-  01  cost model: time = constant + misses × cost of a miss
+  00  the map: entry by regime and by symptom, 15 findings
+  01  cost model: time = constant + misses × cost of a miss, ceilings
   02  where to serve a miss: CPU lane vs PCIe copy
   03  hot experts: profile, domain, placement
   04  live expert cache
@@ -41,27 +67,17 @@ playbook/    16 chapters by mechanism
   13  the output head
   14  how to benchmark, and the traps
   15  quality and release gates
-ledger/      every hypothesis with a verdict and a "revisit when"
-cases/       the rig and 5 model case files
-protocol/    checklist for a new model, template for a new entry
+ledger/      every hypothesis: verdict, numbers, why, "revisit when", condition tags
+cases/       the rig, a traits table and 5 model case files
+protocol/    situation card, experiment rules, new-model checklist, entry template
+tools/       route_sim.py (skew and cache simulator), fit_cost.py (time model fit)
 SKILL.md     entry point for agents
 AGENTS.md    rules for editing this repo
 ```
 
-## A few results
-
-- Decode of an offloaded MoE fits `time per token = constant + misses × cost of one miss` on every engine we used. On DeepSeek the fit of a speculative round has R² 0.9997.
-- "Keep the hot experts in VRAM" works on 2 of the first 4 models. On MiniMax a profile gives 64-69% hits and random placement gives 61% (sim).
-- A miss in decode was usually cheaper to compute on the CPU than to copy over PCIe 3.0. On Hy4 Flash with 2 cards that took decode from 24.6 to 70.4 tok/s on a short 600-token code answer.
-- One build flag made the CPU path 3.6x faster on Zen 2 (PDEP runs in microcode there).
-- The build that loads experts once per block of up to 57,600 tokens and runs attention in tiles of 2,048 took single-card prefill from ~420 to ~1,420-1,510 tok/s.
-- Training a drafter on our own data gave little or nothing on 3 models. A draft vocabulary for the language took acceptance on Russian from 32% to 54% with no training.
-- A short benchmark promised +27% decode. Real generation gave +2%.
-- A drafter change matched on 4,400 tokens of the first turn and broke the second turn.
-
 ## Use it with an agent
 
-The repo root is a skill directory (`SKILL.md` plus plain markdown, without scripts or dependencies).
+The repo root is a skill directory: `SKILL.md`, plain markdown and 2 standard-library Python scripts.
 
 Clone it where your agent looks for skills, for example:
 
@@ -76,6 +92,17 @@ or into `.agents/skills/` or `.claude/skills/` of a project. Then ask the agent 
 - "Plan the bring-up of this new MoE on 1x 24 GB + 128 GB RAM."
 
 Without skills support, point the agent at the repo and tell it to read `SKILL.md` first.
+
+The agent fills a situation card, gets a tag line such as `#offload #weak-skew #cpu-lane #multi-gpu #agent`, and filters the ledger with it:
+
+```bash
+grep "#weak-skew" ledger/hypotheses.md
+python3 tools/route_sim.py --demo uniform --fraction 0.3
+```
+
+## What it does not have
+
+A benchmark harness, data on concurrent load, and hardware other than our rig. The tools here help to orient, they do not launch or time a server.
 
 ## How it is maintained
 

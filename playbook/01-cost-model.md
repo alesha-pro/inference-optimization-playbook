@@ -2,6 +2,8 @@
 
 Covers DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash, July to November 2026.
 
+> **Read when:** part of the experts are in RAM, or you are deciding whether offload will be fast enough. **Skip when:** the model is fully in VRAM (only the section on ceilings applies). **Ledger tags:** `#offload` `#decode`.
+
 ## The formula
 
 An MoE model touches a small share of its weights on every token. Everything that does not fit in VRAM can stay in RAM, and you pay only for the experts that were picked on this token and are not on the GPU.
@@ -55,6 +57,21 @@ The useful unit of VRAM is how many experts fit in it. That depends on bits per 
 This elasticity drops once misses are cheap. On DeepSeek after all optimizations the CPU part was ~10% of a round, and +10 GB of VRAM for experts gives only about +1.8% decode (calc). At that point plain GPU work gave more: moving the Q8 matvec to int8 tensor cores gave +5.6% decode, bit for bit ([mw00/project-maya#810](https://github.com/mw00/project-maya/pull/810)).
 
 **Before you free VRAM for experts, compute what share of token time goes to misses right now.**
+
+## Know the ceiling before you start
+
+The fit gives the ceiling for free: with zero misses a token costs only the constant part. Compute it before the work starts, report progress as a share of it, and tell the user early if the target is above it.
+
+| Case | What the calculation said | What it meant |
+|---|---|---|
+| GLM-5.3-Flash EXL3 4.05, Maya | constant part 9.5 ms, so about 105 tok/s with no misses (calc). The real token took 45.9 ms on 2 channels (21.8 tok/s) and 33.4 ms on 4 channels in pairs (29.9 tok/s) | almost all of the time was misses, so placement, bits and the miss path were the right targets |
+| GLM 4.05, target 55+ tok/s | needs no more than ~520 MB of RAM traffic per token, -40% misses (calc) | RAM bandwidth alone cannot get there, it needs more experts in VRAM |
+| DeepSeek, +10 GB of VRAM for experts | about +1.8% decode (calc), with the CPU part at ~10% of a round | the constant part was the right target |
+| DeepSeek, re-read of 1.5K tokens | floor 1.6-2.2 s (calc) against 2.9 s reached | little is left without PCIe 4.0 or a new overlap ([07](07-prefill.md)) |
+| Qwen Flash-Next, any drafter | at most +20%, because at T=1 the model takes its own top token in 79% of positions | training a better drafter could not pay much ([08](08-speculative-decoding.md)) |
+| Hy4 Flash, Q2 output head with a norm bound | the bound kept 120,832 of 120,832 rows for the recheck | a guaranteed answer cost at least a full pass, the idea stayed in the lab ([13](13-output-head.md)) |
+
+For a model held fully in fast memory the ceiling comes from another calculation: bytes read per token over memory bandwidth for decode, FLOPs per token over peak compute for prefill. We have no data of our own on it.
 
 ## How to use this on a new model
 

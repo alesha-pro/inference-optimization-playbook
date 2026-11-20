@@ -2,6 +2,8 @@
 
 Covers DeepSeek V4.1 Flash, MiniMax-M3.1-Flash, GLM-5.3-Flash, Qwen3.8-Flash-Next, Hy4 Flash.
 
+> **Read when:** experts move between RAM and VRAM while the engine runs, or a static set is close to random. **Skip when:** everything fits in VRAM. **Ledger tags:** `#offload` `#weak-skew` `#strong-skew`.
+
 A live cache moves an expert from RAM to VRAM when it gets hot in the current request and evicts one that cooled down.
 
 ## Implementations we ran

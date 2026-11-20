@@ -2,6 +2,8 @@
 
 Covers Hy4 Flash (vocabulary 120,832, BF16 head). Applies to any model where the projection onto the vocabulary is a visible share of the decode step, dense models included.
 
+> **Read when:** the projection onto the vocabulary is a visible share of the decode step. **Skip when:** it is a few percent of the step. **Ledger tags:** `#head`.
+
 ## What worked: a cheap estimate with an exact recheck
 
 The original projection reads BF16 weights for the full vocabulary. For greedy we tested a cheaper Q8 estimate plus a conservative error bound for every row. Rows that can still win are recomputed with the original weights. For the drafter the second candidate is checked too. On a tie the order of token IDs matters.

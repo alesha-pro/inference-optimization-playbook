@@ -2,6 +2,8 @@
 
 Covers Hy4 Flash for the 3-level scheme and the release example. The rulers at the end come from all models.
 
+> **Read when:** before any change ships, and when 2 builds give different answers. **Ledger tags:** `#quality-risk`.
+
 ## 3 requirements, 3 controls
 
 | Requirement | Control | What we found on Hy4 |

@@ -2,6 +2,8 @@
 
 Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash.
 
+> **Read when:** you choose which experts stay in VRAM, or a profile gives fewer hits than expected. **Skip when:** routing has weak skew (go to 04), or everything fits in VRAM. **Ledger tags:** `#offload` `#strong-skew`.
+
 The question here: how do you find which experts are hot on a specific load (for example a business domain), and how do you place them.
 
 ## What a profile is

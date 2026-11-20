@@ -44,6 +44,25 @@ Quants used for the main work:
 
 Engines: Strata, its Maya forks (for DeepSeek, GLM, MiniMax, Hy4), our fork of exllamav3, llama.cpp and vLLM.
 
+## Traits, and what stayed in the working setup
+
+Find the column closest to your model by traits, not by name.
+
+| | DeepSeek V4.1 Flash | Qwen3.8-Flash-Next | GLM-5.3-Flash | MiniMax-M3.1-Flash | Hy4 Flash |
+|---|---|---|---|---|---|
+| Experts per layer | 384, top-6 | 512 | 288, top-8 + shared | 128, top-4 + shared | 512, top-16 |
+| Routing skew | strong: top-100 cover 70% of picks | strong: ~24% of experts in VRAM give 74-79% hits | weak: the cold half gets 41% of picks | weak: profile 64-69% vs random 61% (sim) | not classified. Input stats cover 48% of generation picks, the answer's own stats 96% |
+| Size of 1 expert | 10.6-12.6 MB (Maya-S) | | 9.4 MB at 3.05 bpw | ~15-18 MB at 2 bits | |
+| Side table | Engram 161 GB | PLE 27-29 GB | | | Engram 59 GiB |
+| Engine | Maya | Strata | exllamav3 fork, Maya | maya-mm3 | Maya |
+| Cards | layer split on 4 | layer split, 2 are enough for decode | TP when fully in VRAM | layer split | TP on 4, TP with a CPU lane under partial placement |
+| A miss is served by | CPU lane | CPU | PCIe copy (Maya-M), VRAM cache (TP fork) | CPU lane | CPU lane |
+| Drafter | DSpark | DFlash2, threshold 0.5, Cyrillic draft vocabulary | MTP with draft length 1 | DSpark with a cost-based window | native MTP, adaptive width |
+| One of the big gains | prefill 32K 430 → 2,199 tok/s (DMA for all formats and more) | DFlash2: +44-46% decode | TP: 48.3 → 66-68 tok/s | K/V gathered into VRAM: prefill 64K ×3.3 | block and tile: 1-card prefill ×3.4-3.6 (full build) |
+| The surprise | a short test promised +27%, real generation gave +2% | 46 CPU threads dropped decode to 20-60 tok/s | DIMM heat: 22.7 → 6.6 tok/s in minutes | the "service profile" was ~300 tokens of 1 session | the first turn matched, the second diverged |
+
+An empty cell means the source notes do not state it.
+
 ## Which case is closest to your model
 
 | Your model looks like | Start with |

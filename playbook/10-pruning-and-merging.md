@@ -2,6 +2,8 @@
 
 Covers GLM-5.3-Flash, Qwen3.6-35B-A3B, Laguna S 2.1 117B, MiniMax-M3.1-Flash, Qwen3.8-27B.
 
+> **Read when:** someone proposes to drop, mask or merge experts. **Skip when:** the model fits in RAM + VRAM and the goal is speed. **Ledger tags:** `#pruning`.
+
 The question that always comes up: if VRAM is short, why not drop the cold experts?
 
 ## How to score importance

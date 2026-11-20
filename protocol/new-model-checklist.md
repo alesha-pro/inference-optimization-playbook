@@ -1,5 +1,7 @@
 # Protocol: a new model on your hardware
 
+Before this checklist, fill the [situation card](situation-card.md) and read the [experiment rules](experiment-rules.md). The steps below are the ones that were useful on our models, in the order we would take them now. They are not a fixed sequence: skip what the [map](../playbook/00-start-here.md) routes you around.
+
 Two parts. Part A sets up the experiment so the results mean something. Part B is the order of technical steps for an MoE that does not fit in VRAM. For a dense model skip B2-B7 and go to B8.
 
 ## Part A. Before the first optimization

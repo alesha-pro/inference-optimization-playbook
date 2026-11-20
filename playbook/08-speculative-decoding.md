@@ -2,6 +2,8 @@
 
 Covers Qwen3.8-Flash-Next (DFlash2, MTP), DeepSeek V4.1 Flash (DSpark), MiniMax-M3.1-Flash (DSpark), GLM-5.3-Flash (MTP, DFlash2), Hy4 Flash (MTP, DFly2).
 
+> **Read when:** a drafter exists or you plan to add one. **Skip when:** requests are batched (speculation lost under batching here). **Ledger tags:** `#drafter`.
+
 A drafter proposes a continuation, the target model checks it as a batch ("verify"). Useful speed is the sum of emitted tokens divided by the sum of drafter time, verify time and the rest of the step. The count of correct first proposals alone does not give this result.
 
 ## Why it pays

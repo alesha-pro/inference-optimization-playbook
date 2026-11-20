@@ -2,6 +2,8 @@
 
 Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash.
 
+> **Read when:** decode has misses and you choose between computing them on the CPU and copying them over PCIe. **Skip when:** every expert is in VRAM. **Ledger tags:** `#offload` `#cpu-lane` `#pcie`.
+
 ## Typical layout
 
 | Tier | What is there | How it is used |

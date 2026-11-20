@@ -2,6 +2,8 @@
 
 Covers Qwen3.8-Flash-Next, DeepSeek V4.1 Flash, GLM-5.3-Flash, Hy4 Flash, Mirai quants of Qwen.
 
+> **Read when:** you choose the bits for the experts or think about mixing quants. **Skip when:** the quant is fixed by the task. **Ledger tags:** `#quant`.
+
 Decode speed under offload follows how many experts fit in VRAM and the cost of a miss (the size of an expert). Fewer bits → more experts in VRAM → fewer misses → faster. At the price of quality.
 
 Qwen Flash-Next, Strata, 2 cards, 16K:

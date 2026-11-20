@@ -2,6 +2,8 @@
 
 Covers DeepSeek V4.1 Flash, MiniMax-M3.1-Flash, Qwen3.8-Flash-Next, Qwen3.5-122B, Hy4 Flash.
 
+> **Read when:** the load is a coding agent or a multi-turn chat. **Skip when:** the load is single-shot batch jobs. **Ledger tags:** `#agent` `#kv`.
+
 ## What an agent turn is made of
 
 A live DeepSeek session (295 turns, context up to 279K):

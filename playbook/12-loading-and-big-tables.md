@@ -2,6 +2,8 @@
 
 Covers Qwen3.8-Flash-Next (Strata), GLM-5.3-Flash, DeepSeek V4.1 Flash (Maya), Hy4 Flash.
 
+> **Read when:** the service starts slowly, or system RAM is the limit because of one big table. **Skip when:** loading and RAM are fine. **Ledger tags:** `#load` `#big-table` `#ram`.
+
 ## Loading
 
 - **Source of the weights.** Strata read experts from a SATA SSD in 3.5-8 minutes, from NVMe in 45 s, from the page cache in 26-44 s. GLM from SATA 6-13 minutes vs 65-100 s from NVMe.
