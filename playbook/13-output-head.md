@@ -28,6 +28,10 @@ Q2 with a short candidate list and an exact BF16 recheck returned the original f
 
 On a new model, first look at the distribution of the number of candidates after applying the bound. The size of the initial list and success on a held-out set do not tell you the cost of a guaranteed answer.
 
+## Sampling candidates on the device (Inkling 2 Mini, 2026-11-21)
+
+Copying 200,058 logits to the host and sorting them cost ~0.8 ms a token. A histogram of 1,024 bins over the softcapped range finds the bin from which the top 1,000 start, and only those (1,000-2,400) go to the host: sampling 100 → 110 tok/s, the same tokens for the same seed.
+
 ## Transfer checklist
 
 1. Profile the decode step. If the head is a few percent, skip this chapter.

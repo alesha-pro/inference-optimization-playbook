@@ -51,6 +51,14 @@ A row without a tag of some group was not tested across that group. A missing `#
 | PL-11 | Reserve KV, projector and buffers first, then place experts | ✅ | HY: with an automatic budget the same binary could place a different number of experts, which affected the NVMe A/B. A variant with a fixed budget matched both checked HTTP answers | an A/B must compare the same placement | [03](../playbook/03-expert-profile-and-placement.md) | #offload #decode |
 | PL-12 | Lossless compression of experts with in-kernel decode | ❌ | HY: frees ~0.725 GiB on the busiest card, 470,016 values match, but 12 Q3 experts 21.71 → 326.25 µs, Q4 23.35 → 192.10 µs | decode cost. Revisit with another decoder, or if the residency gain covers it in a full step | [09](../playbook/09-quants.md) | #offload #kernel |
 | PL-13 | Choose the hot set for an answer from the stats of its prompt | ❌ | HY (1 long text): 220 experts picked by input stats cover 48% of generation picks, picked by the generation itself 96% | the prompt does not predict the experts of the answer. Start from past answers and adapt | [03](../playbook/03-expert-profile-and-placement.md) | #offload #decode #long-context |
+| PL-14 | Commit global KV on demand so a large configured window can coexist with resident experts on short turns | ✅ | Inkling 2 Mini on 1 card, 1M configured: 285 resident slots with eager KV, all 3,072 with managed global KV | deep decode must be timed at populated depth | [03](../playbook/03-expert-profile-and-placement.md) | #kv #offload #long-context |
+| PL-15 | Keep every expert in VRAM and replay a token as one CUDA graph, picks resolved on the device | ✅ | Inkling 2 Mini, 1 RTX 3090: llama.cpp 57 → 112 tok/s | only when experts, dense weights and KV fit one card | [03](../playbook/03-expert-profile-and-placement.md) | #in-vram #1gpu #decode #kernel |
+| PL-16 | Fuse a token's small launches (convs into products, routing, norms, loop messages) | ✅ | Inkling 2 Mini: 1,404 → 781 launches a token, each fusion bit-exact | any launch costs 2-3 µs; count launches before bytes | [03](../playbook/03-expert-profile-and-placement.md) | #in-vram #decode #kernel #dense-ok |
+| PL-17 | Token attention on tensor cores straight from the KV cache into registers | ✅ | Inkling 2 Mini 65K deep: FP16 63 → 77, FP8 53 → 84 tok/s; 846 / 776 GB/s | needs R ≤ 8 heads per KV head, D = 128 | [03](../playbook/03-expert-profile-and-placement.md) | #kv #long-context #decode #kernel #dense-ok |
+| PL-18 | Skip V reads for steps whose attention weights are all tiny | ❌ | Inkling 2 Mini real 64K text: 0.0% of 16-key steps skippable | revisit on models with peaked global attention | [03](../playbook/03-expert-profile-and-placement.md) | #kv #long-context #dense-ok |
+| PL-19 | Group loads inside small latency-bound token kernels | ◐ | Inkling 2 Mini: attention residuals +2.5% bit-exact; loop gates and FP16 matvec slower (4.9 → 24 µs) | profile each kernel, registers and occupancy decide | [03](../playbook/03-expert-profile-and-placement.md) | #in-vram #decode #kernel |
+| PL-20 | All core layers' loop messages of a pass in one launch | ✅ | Inkling 2 Mini: 127.2 → 128.2 tok/s, bit-exact | looped models only | [03](../playbook/03-expert-profile-and-placement.md) | #in-vram #decode #kernel |
+| PL-21 | Image encoder on the CPU to give its VRAM to the context | ✅ | Inkling 2 Mini: 262K → 344K context with images; new image ~4.5 s on 48 cores | worth it when context, not image latency, matters | [03](../playbook/03-expert-profile-and-placement.md) | #kv #long-context #1gpu |
 
 ## Where to serve a miss
 
@@ -68,6 +76,7 @@ A row without a tag of some group was not tested across that group. A missing `#
 | MS-10 | Split CPU lane work by dot products, not by rows | ✅ | MM: +16-23% in speculation windows | 40% of lane time was waiting for the slowest thread | [06](../playbook/06-cpu-and-ram.md) | #offload #cpu-lane #drafter |
 | MS-11 | Fewer CPU lane threads than cores | ✅ | Strata 0.1.45, 1 card: 46 threads (set by the engine) 20-60 tok/s, 32 threads ~75. Strata 0.2 sets 32 itself and holds ~87 | the thread count of the CPU lane is critical, SMT does not help | [06](../playbook/06-cpu-and-ram.md) | #offload #cpu-lane #1gpu |
 | MS-12 | Specialized kernels for the quant in use | ◐ | HY: IQ2 kernels, short decode 92.6 → 99.2 tok/s. A new SWA kernel for 32 heads: 0 (attention was ~2% of the step) | profile the share first | [09](../playbook/09-quants.md) | #offload #quant #kernel |
+| MS-13 | Move complete expert layers to the CPU in order of model visits per byte when global KV occupies the GPU | ◐ | Inkling 2 Mini, 1 RTX 3090 + 24 EPYC threads, 8-channel DDR4: at 1,048,064 allocated positions a controlled synthetic-KV decode improved from 10.55 to 18.13 tok/s | count the repeated visits, preserve the dot product order and time a populated request | [06](../playbook/06-cpu-and-ram.md) | #offload #cpu-lane #1gpu #long-context |
 
 ## Several GPUs
 
@@ -109,6 +118,8 @@ A row without a tag of some group was not tested across that group. A missing `#
 | PF-13 | INT8 for the DSA indexer | ❌ | HY: 47.99 vs 46.93 µs for the FP16 path with the exact recheck counted | revisit with other candidate shares and lengths | [07](../playbook/07-prefill.md) | #kernel #long-context |
 | PF-14 | Start independent ops earlier in decode | ◐ | HY: early Engram ~1.4% (7,200 IDs match). Other variants small and shape-dependent | only where the profile shows the critical path | [07](../playbook/07-prefill.md) | #decode #kernel |
 | PF-15 | Unify structs and kernels across phases | ❌ | HY: 1 field cost 2-3% prefill, a 4-slot loop +0.35 ms short decode | revisit on a compiler or architecture change | [14](../playbook/14-benchmarking-and-traps.md) | #kernel #dense-ok |
+| PF-16 | FP8 cache in flash prefill tiles and a looped model's gates over a chunk as cuBLAS GEMMs | ✅ | Inkling 2 Mini: +24% prefill, 2,500 tok/s at 4K-65K (llama.cpp 1,052) | | [07](../playbook/07-prefill.md) | #prefill #kv #in-vram |
+| PF-17 | Short prompts read experts by groups instead of FP16 decode + GEMM | ✅ | Inkling 2 Mini: 12 new tokens 118 → 56 ms | up to ~96 tokens | [07](../playbook/07-prefill.md) | #prefill #in-vram |
 
 ## Speculation
 
@@ -128,6 +139,8 @@ A row without a tag of some group was not tested across that group. A missing `#
 | SD-12 | Our own Domino drafter for AWQ | ❌ | 4.8% slower than no speculation | | [08](../playbook/08-speculative-decoding.md) | #drafter #in-vram |
 | SD-13 | Rejection sampling instead of exact match | ○ | QW DFlash2: +3% (sim) | | [08](../playbook/08-speculative-decoding.md) | #drafter |
 | SD-14 | Speculation under batching | ❌ | vLLM n-gram: +40% on 1 stream, -30 to -51% on 4-8 | | [08](../playbook/08-speculative-decoding.md) | #drafter #batch #dense-ok |
+| SD-15 | Verify long copies proposed by earlier text in the request | ◐ | Inkling 2 Mini on 1 card: 488.9 tok/s for a verified 509-token Python edit, 113-114 on fresh prose and code using the same serving profile | measure copy acceptance and ordinary requests separately | [08](../playbook/08-speculative-decoding.md) | #drafter #decode |
+| SD-16 | DSpark with a 4-5 token window on a model with every expert in VRAM | ○ | Inkling 2 Mini acceptance: prose 1.9-2.2, code 2.7-2.9, rewrite 3.6-4.3; window experts 2.4-2.8× one token's; verify via the prompt path 41 ms (loses) | needs a verify step ≤ ~12-13 ms; vLLM reports +14% prose, +67% code on RTX 5090 | [08](../playbook/08-speculative-decoding.md) | #drafter #in-vram #decode |
 
 ## Output head
 
@@ -136,6 +149,7 @@ A row without a tag of some group was not tested across that group. A missing `#
 | HD-01 | Q8 estimate + error bound + exact recheck (greedy) | ✅ | HY: matched on all 1,158 IDs and 9 dialog boundaries | the proof is per kernel | [13](../playbook/13-output-head.md) | #head #decode #dense-ok |
 | HD-02 | Q4 only in the drafter head, no recheck | ❌ rolled back | HY: 176.37 → 182.60 tok/s, first turn matched, second turn diverged | shifted the snapshot boundary by 1 position | [13](../playbook/13-output-head.md) | #head #drafter #quality-risk #agent |
 | HD-03 | Q2 short list with a norm bound | ❌ lab only | HY: bound left 120,832 of 120,832 rows | the guarantee cost a full pass | [13](../playbook/13-output-head.md) | #head #dense-ok |
+| HD-04 | Sampling candidates found on the device (histogram top-K) instead of copying the vocabulary | ✅ | Inkling 2 Mini: sampling 100 → 110 tok/s, same tokens for a seed | | [13](../playbook/13-output-head.md) | #head #decode #dense-ok |
 
 ## Quants and pruning
 
@@ -153,6 +167,10 @@ A row without a tag of some group was not tested across that group. A missing `#
 | QP-10 | Lower top-k | ❌ | MM top-3/top-2: NLL +46% up to +250% | | [10](../playbook/10-pruning-and-merging.md) | #pruning #quality-risk |
 | QP-11 | Slice a dense FFN into an MoE without training | ❌ | Qwen3.8-27B: GSM8K 83% → 5% | | [10](../playbook/10-pruning-and-merging.md) | #pruning #dense-ok |
 | QP-12 | Larger chunk without a new numeric check | ❌ as a silent change | HY 2,048 → 3,072: 1 of 33 top-1 changed, NLL 3.961 → 4.147 in the strict series | chunk size is a numeric change | [15](../playbook/15-quality-and-release-gates.md) | #prefill #quality-risk |
+| QP-13 | Keep the NVFP4 codebook and use two signed-byte activation limbs for DP4A | ◐ | Inkling 2 Mini on 1 card: 120.29 tok/s for NVFP4 on a short request, 199/199 top tokens matched at fixed FP16 KV. The combined FP8 profile matched 781/795. Paired GSM8K with original short-prompt products gave 71/96 versus 73/96 for scalar experts | activation rounding remains, test the entire distribution on fixed histories | [09](../playbook/09-quants.md) | #kernel #decode |
+| QP-14 | Decode NVFP4 nibbles directly to signed half values while preserving scalar FMA order | ✅ | Inkling 2 Mini on one RTX 3090, short new Python: paired runs 112.62-112.83 to 116.33-116.60 tok/s, byte-identical full logits at 795 fixed positions | check both the decode table and the reduction order when changing hardware | [09](../playbook/09-quants.md) | #kernel #decode #1gpu |
+| QP-15 | NVFP4 experts on Ampere tensor cores: codes → FP16 in registers, warps split along K, 2 FP16 input limbs | ✅ | Inkling 2 Mini: 121.2 → 127.2 tok/s, 745 GB/s; lone warp 100 vs 118; GSM8K 74/96 vs 73 | median KL 5.7e-5; one FP16 input changes more tokens | [09](../playbook/09-quants.md) | #kernel #decode #in-vram #1gpu |
+| QP-16 | Load ahead in the planar Q8 dense matvec | ❌ | Inkling 2 Mini: 0%, already 715 GB/s | it is at the memory limit | [09](../playbook/09-quants.md) | #kernel #decode #dense-ok |
 
 ## Agent work, sessions, loading
 

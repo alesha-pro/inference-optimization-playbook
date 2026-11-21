@@ -45,6 +45,13 @@ Covers all models. This chapter is about getting numbers you can trust. What cou
 | Automatic budget | the same binary could place a different number of experts between runs, which affected the comparison of NVMe modes ([03](03-expert-profile-and-placement.md)) |
 | Unified code paths | 1 extra field in a struct passed by value cost 2-3% of prefill. A loop over 4 expert slots added about 0.35 ms to short decode |
 
+## Traps on a looped model with an FP8 cache (Inkling 2 Mini, 2026-11-21)
+
+- Any 2 runs over an FP8 (E4M3) cache drift apart within a few tokens: a difference of 1e-5 flips codes of a 3-bit mantissa. Compare paths by full logits on forced tokens, not by the generated text.
+- The mean KL over forced tokens is set by a few outliers. Use the median and the count of changed top tokens, and calibrate them against a change you already accepted on the same text.
+- A CLI run of the engine without a context size did not keep every expert in VRAM and took the general path: checks of the resident path without it checked nothing.
+- `nsys` does not see kernels inside a CUDA graph (profile with the graph off), and `nsys stats` does not overwrite an older CSV.
+
 ## What to record with every number
 
 - model, quant, engine and revision, full launch arguments;

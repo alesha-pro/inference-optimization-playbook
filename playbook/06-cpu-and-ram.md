@@ -52,6 +52,12 @@ On a 2-socket machine or with NPS4 this can be different (the cross-socket link 
 
 Note the 2 prefetch results. Software prefetch in the DeepSeek CPU lane gave -1 to +3%. Row prefetch on Hy4 at depth took a CPU lane request from 0.88 back to 0.33 ms. We did not test why they differ.
 
+## Place whole layers on the CPU at deep context (Inkling 2 Mini, 2026-11-21)
+
+Inkling 2 Mini has 24 physical MoE layers. The middle 12 run 3 times per token. At large depths an FP8 global KV cache alone can occupy 16 GiB on one RTX 3090. A host implementation ranked whole layers by visits per byte of expert weights. It chose layers with the lowest ratio until enough VRAM was free. AVX2, FMA and F16C executed the gate, up and down dot products on 24 EPYC 7642 threads. The GPU applied routing, SwiGLU and its FP16 rounding. Copy traffic per selected layer consisted of activations, outputs and 8 expert IDs.
+
+With 15,995 actual input tokens and a synthetic KV tail, GPU staging alone gave 32.35, 16.94 and 10.55 tok/s at 524,288, 786,432 and 1,048,064 positions. The selected host layers gave 41.63, 26.14 and 18.13. Sending all layers to the CPU at the last depth gave 13.38. These controlled placement tests used 8-channel DDR4-2133, PCIe 3.0 x16 and a 300 W GPU. The production service keeps this host path disabled below 524,288 positions.
+
 ## Transfer checklist
 
 1. Run STREAM Triad by thread count before anything else. Find the plateau.

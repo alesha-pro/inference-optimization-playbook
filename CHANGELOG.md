@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-21
+
+- Added Inkling 2 Mini on one RTX 3090. Documented on-demand global KV, depth-dependent CPU placement, exact scalar codebook lookup, two-limb NVFP4 products and verified suffix copying.
+
+## 2026-11-21, Inkling 2 Mini engine
+
+- Inkling 2 Mini resident engine: 14 rows (PL-15..21, PF-16..17, SD-16, HD-04, QP-15..16), sections in chapters 03, 07, 08, 09, 13, 14, the case file extended.
+
 ## 2026-11-21, the map
 
 - The entry page is now a map: 7 questions by regime plus the entry by symptom.

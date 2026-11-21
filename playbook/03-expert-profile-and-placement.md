@@ -105,6 +105,29 @@ If the gap "your profile vs ideal" is large (ours was 8 points, the 10 point thr
 - **One profile for 2 quants.** We used the Maya-S profile for the UD quant of the same model. The routers are dense and should match. This was confirmed indirectly on 1 text, not checked directly.
 - **Someone else's stats.** Our GLM runs in Maya had profile accumulation turned off, and warmup used the upstream profile. We found this only during the review.
 
+## Allocate global KV as the request grows (Inkling 2 Mini, 2026-11-21)
+
+On one RTX 3090, the 3,072 experts of the UD-Q4_K_XL checkpoint occupy 14.7 GiB. The eight logical global-attention visits need 16 GiB of FP8 K/V at 1,048,576 positions. Eagerly allocating the maximum before the expert cache left 285 expert slots. A 47-token prompt then decoded at 8.72 tok/s (31 timed tokens, one run). Allocating the global KV with CUDA managed memory allowed the engine to keep all experts on the card during short requests. Sliding-window KV remained in dedicated GPU memory.
+
+The managed allocation changes residency as the prompt grows. Benchmark the short request with the maximum still configured, then measure decode on an actual full prompt. A short request measures the virtual reservation and expert residency. Only the deep request incurs the cost of scanning a populated cache.
+
+## Every expert in VRAM on one card: the resident token path (Inkling 2 Mini, 2026-11-21)
+
+When the experts fit (Inkling 2 Mini: 14.7 GiB of experts, 1.1 GiB of dense weights kept as planar Q8_0, an FP8 KV cache, one RTX 3090), placement stops being the problem and the token's launches become it. Every kernel launch costs 2-3 µs even when it does almost nothing, and a lone warp on an SM runs at an IPC of 0.2-0.3, so a kernel shaped as "one block of 4 warps per SM" is bound by latency, not by memory.
+
+| Change | Before → after | Note |
+|---|---|---|
+| Resolve the router's picks on the device (a table of expert pointers), read the position from the device, replay the token as one CUDA graph | llama.cpp b12590 57 tok/s → 112 tok/s | the token needs nothing from the host between embedding and logits |
+| Fuse launches: short convs into the products before them, routing into 1 launch, a looped layer's 3 norms and 4 messages into 1 each | 1,404 → 781 launches a token | each fusion bit-exact against the launches it replaces |
+| Token attention on the tensor cores, a warp per run of keys, K and V straight from the cache into registers (no shared memory) | 65K deep: FP16 cache 63 → 77 tok/s, FP8 cache 53 → 84 | 846 GB/s over FP16, 776 GB/s over FP8; the FP8 cache becomes the faster one at depth |
+| Load 4 attention-residual states at once in a thread, sum in the original order | 118.4 → 121.2 tok/s | bit-exact |
+| All 12 core layers' loop messages of a pass in 1 launch (the bank does not change within a pass) | 127.2 → 128.2 tok/s | bit-exact, 24 launches less a token |
+| The image encoder on the CPU | context 262,144 → 344,064 with images, peak 23.57 GiB at 340K | a new image takes ~4.5 s on 48 EPYC cores, the same image again 0.5 s |
+
+What did not pay: skipping V reads where all of a step's attention weights are tiny (the model's global attention is spread out: 0.0% of 16-key steps were skippable on a real 64K text); grouping loads inside the loop-gate and FP16 matvec kernels (slower: the FP16 router matvec went from 4.9 to 24 µs); asking for more bytes ahead in the planar Q8 matvec (0%, it already reads 715 GB/s).
+
+Profile after these (4K deep, FP8 cache, graph off): 8.34 ms of kernels a token, 781 launches. Dense Q8 2.54 ms (head ~0.6), NVFP4 experts 2.29, Q8 experts of layers 20-23 0.46, attention residuals 0.75, attention 0.66, loop gates 0.53. Weights read a token: 3.7 GB, so the memory floor is about 4.6 ms.
+
 ## Transfer checklist
 
 1. Record picks on your real load, prefill and decode separately.

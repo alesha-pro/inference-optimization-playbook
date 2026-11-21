@@ -95,6 +95,13 @@ These are per-factor microbenchmarks. The final combination was checked separate
 | Start independent operations earlier in decode | Early Engram computation gave about 1.4% in a paired control with 7,200 matching IDs. Several deep variants of SWA, early input feed and FFN overlap gave small effects that depended on width and depth | The profile points at the right part of the critical path. Compare a paired microtest, the first request and full generation |
 | Copy the deep KV snapshot in advance, while prefill is still running | The final part of the copy went from 56.4 to 1.4 ms. But 3 adjacent blocks together took 2,256 → 2,257 ms, and the full HTTP request 91.206 → 91.276 s. A possible cause is PCIe contention in the neighbor block | Try again if a trace shows free bandwidth during the transfer |
 
+## Prefill with every expert in VRAM (Inkling 2 Mini, 2026-11-21)
+
+- The flash prefill kernel reads an FP8 cache: tiles fetched raw with `cp.async`, turned into FP16 in shared memory by a branch-free E4M3 decode.
+- A looped model's message gates over a chunk as cuBLAS SGEMMs (from 32 tokens): +24% prefill, 2,500 tok/s at 4K-65K on one RTX 3090 (llama.cpp: 1,052).
+- Prompts up to 96 tokens (a chat turn) read each expert once for up to 8 of its tokens instead of decoding it to FP16 for a GEMM: 12 new tokens 118 → 56 ms.
+- Remaining cost at 16K, per 2,048-token chunk (721 ms): FP16 copies of NVFP4 experts 107 ms, expert GEMMs ~150, per-expert gather/SwiGLU/scatter launches 73, flash attention 66, dense GEMMs ~150. GEMMs straight over NVFP4 without the copies are the next step.
+
 ## Transfer checklist
 
 1. Count bytes moved CPU→GPU per fresh token. If the same expert weights cross PCIe again and again, that is the first target.

@@ -94,6 +94,26 @@ For reproduction you need independent dialogs in train/dev/test and a separate s
 5. Compute the ceiling in advance: a perfect drafter = always the argmax of the model. Before any training this tells you how much there is to win.
 6. Write the success threshold down in advance.
 
+## Count copied tokens separately (Inkling 2 Mini, 2026-11-21)
+
+A suffix verifier on one RTX 3090 proposed continuations from earlier in the same request. The target checked every position. A repetitive CLI continuation reached 290.55 tok/s over 799 timed output tokens. Twelve verifier calls accounted for 744 input positions. On a sampled database explanation through the HTTP service the same build ran at 119.3 tok/s (one run each). Record the prompt, sampler, timed token count and number of verified positions alongside any result above the ordinary decoder's speed.
+
+On an HTTP edit the user asked to return a Python file with one identifier changed. The verifier returned 509 tokens at 377.2 tok/s. The result matched the requested source byte for byte after removing the optional Markdown fence and trimming the outside whitespace. Fresh code, prose and sampled database explanations on the same profile ran at 124–127 tok/s. A grouped tensor-core verifier reached 434.19 tok/s on the repetitive CLI input. The official draft model instead averaged 2.56 committed tokens per four-position step on fresh Python. Drafting took 2.6 ms and verification 19.9 ms per step, for 113.86 tok/s overall.
+
+The deployment with scalar expert products used a 96-token proposal limit. It returned the same 509-token Python edit at 488.9 tok/s. The target accepted 463 of 519 proposed tokens. Fresh prose ran at 113.4 tok/s over 367 tokens and fresh Python at 113.6 over 512. A separate experimental build retiled NVFP4 weights in memory and captured the official drafter's target verification in a CUDA graph. With 4,096 positions configured, fresh code reached 139.16 tok/s over 767 timed tokens. All 768 generated IDs matched the uncaptured verifier. Fresh prose reached 87.27 tok/s on the same build and width.
+
+## A small window on a model with every expert in VRAM (Inkling 2 Mini, 2026-11-21)
+
+The official DSpark drafter (3 dense layers, taps of the target's visits 5, 23, 41 and the final hidden) accepts, greedy, on one RTX 3090:
+
+| Text | window 4 (3 drafts) | window 5 | window 8 |
+|---|---:|---:|---:|
+| prose | 2.18 | 1.91 | 1.90 |
+| code | 2.66 | 2.86 | 3.04 |
+| rewrite of a given text | 3.58 | 4.30 | 5.89 |
+
+The verify window decides the gain, not the acceptance alone. With all experts in VRAM a plain step is 7.8 ms, and a window's experts are the union of its tokens' picks: 2.39× one token's at window 4, 2.76× at window 5, 3.59× at window 8 (traced over 255 tokens of prose and of code). The estimate for a well-built verify: ~12 ms at window 4, ~13 ms at window 5, plus ~2 ms of drafting, so prose barely breaks even and code gains ~+45%. A verify through the general prompt path cost 41 ms, which loses everywhere. Two external vLLM builds report the same shape: 2× RTX 3090 216 tok/s single user, one RTX 5090 prose +14% and code +67% over its own plain decode.
+
 ## Transfer checklist
 
 1. Fit the verify cost per width on your engine and placement. Include the miss term if experts are offloaded.

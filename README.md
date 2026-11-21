@@ -1,6 +1,6 @@
 # Inference optimization playbook
 
-A map of 97 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
+A map of 115 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
 
 It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash and Tencent Hy4 Flash on 4x RTX 3090 with experts offloaded to RAM. These models do not fit in 96 GB of VRAM at the quants we wanted. Engines: Strata, Maya forks, an exllamav3 fork, llama.cpp, vLLM, most of them patched by hand.
 
@@ -22,9 +22,11 @@ And what did not work, which is most of the value:
 - A short benchmark promised +27% decode. Real generation gave +2%.
 - A drafter change matched on 4,400 tokens of the first turn and broke the second turn.
 
+Inkling 2 Mini adds a single-card case with all experts resident at short depth.
+
 ## Why a map
 
-The 5 models behaved differently. The cheapest way to serve a miss flipped between models on the same hardware, tensor parallel lost on one and won on another, a long drafter window paid on skewed routing and not on flat routing. A fixed list of steps would be wrong for half of them.
+The 5 offloaded models behaved differently. The cheapest way to serve a miss flipped between models on the same hardware, tensor parallel lost on one and won on another, a long drafter window paid on skewed routing and not on flat routing. A fixed list of steps would be wrong for half of them.
 
 So the playbook is built for orientation. You describe your case, find its place, and see only the results that were obtained under the same conditions.
 
@@ -68,7 +70,7 @@ playbook/    16 chapters by mechanism
   14  how to benchmark, and the traps
   15  quality and release gates
 ledger/      every hypothesis: verdict, numbers, why, "revisit when", condition tags
-cases/       the rig, a traits table and 5 model case files
+cases/       the rig, a traits table and 6 model case files
 protocol/    situation card, experiment rules, new-model checklist, entry template
 tools/       route_sim.py (skew and cache simulator), fit_cost.py (time model fit)
 SKILL.md     entry point for agents
