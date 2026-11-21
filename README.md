@@ -2,7 +2,7 @@
 
 A map of 115 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
 
-It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash and Tencent Hy4 Flash on 4x RTX 3090 with experts offloaded to RAM. These models do not fit in 96 GB of VRAM at the quants we wanted. Engines: Strata, Maya forks, an exllamav3 fork, llama.cpp, vLLM, most of them patched by hand.
+It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash and Tencent Hy4 Flash on 4x RTX 3090 with experts offloaded to RAM, and Inkling 2 Mini on a single RTX 3090 with every expert in VRAM. The big models do not fit in 96 GB of VRAM at the quants we wanted. Engines: Strata, Maya forks, an exllamav3 fork, llama.cpp, vLLM, most of them patched by hand.
 
 | Model, setup | What changed | Before → after |
 |---|---|---|
@@ -14,6 +14,7 @@ It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, Mi
 | Qwen3.8-Flash-Next, Russian | a Cyrillic draft vocabulary, no training | draft acceptance 32% → 54% |
 | MiniMax-M3.1-Flash | attention K/V gathered into VRAM once per chunk | prefill 64K ×3.3 |
 | GLM-5.3-Flash at 2.05 bpw, 4 cards | tensor parallel instead of layer split | 48.3 → 66-68 tok/s |
+| Inkling 2 Mini, 1 card | every expert in VRAM, a token as 1 CUDA graph, NVFP4 experts and attention on the tensor cores | decode 57 (llama.cpp) → 128.7 tok/s, 344K context |
 
 And what did not work, which is most of the value:
 
@@ -22,7 +23,7 @@ And what did not work, which is most of the value:
 - A short benchmark promised +27% decode. Real generation gave +2%.
 - A drafter change matched on 4,400 tokens of the first turn and broke the second turn.
 
-Inkling 2 Mini adds a single-card case with all experts resident at short depth.
+Inkling 2 Mini shows the other regime: once everything fits one card, the cost is kernel launches and memory latency, not placement ([case](cases/inkling-2-mini.md)).
 
 ## Why a map
 
@@ -120,5 +121,6 @@ Tested something from here on other hardware and got a different result? Open an
 - [alesha-pro/qwen38-flashnext-strata-4x3090](https://github.com/alesha-pro/qwen38-flashnext-strata-4x3090): the full Qwen3.8-Flash-Next recipe.
 - [alesha-pro/exllamav3-glm53-4x3090](https://github.com/alesha-pro/exllamav3-glm53-4x3090): the exllamav3 fork for GLM-5.3-Flash.
 - [alesha-pro/project-maya](https://github.com/alesha-pro/project-maya): the Maya fork, with [Hy4 Flash notes](https://github.com/alesha-pro/project-maya/blob/82a77bf/docs/HY4-FLASH.md).
+- [alesha-pro/maya-inkling-mini](https://github.com/alesha-pro/maya-inkling-mini): the Inkling 2 Mini engine on one RTX 3090, with a step by step guide.
 
 By [@superalesha](https://x.com/superalesha). MIT license.
