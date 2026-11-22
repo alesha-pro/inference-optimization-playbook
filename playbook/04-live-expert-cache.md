@@ -58,7 +58,24 @@ A long control with the same task in an agent harness (DSH) gave for the final 2
 | Predicting the router of layer L+1 from the input of layer L (MiniMax, offline) | top-8 catches 84-90% of the real picks, top-16 93-95%. For L+2 top-8 catches 73-83% |
 | Same for GLM (sim) | 1 block ahead, 75% of the real 8 are in the top-8. Estimate +20-28% decode at 3.05 bpw. Not implemented |
 
-The limit: an expert takes 1.4 ms over PCIe 3.0 and a layer takes 0.4-0.7 ms. Prefetch only makes it 2 or more layers ahead, where prediction is worse. On our hardware this is more of a hint for the cache and for the CPU work order than real prefetch. With PCIe 4.0/5.0 it looks better.
+The limit: an expert takes 1.4 ms over PCIe 3.0 and a layer takes 0.4-0.7 ms. Prefetch only makes it 2 or more layers ahead, where prediction is worse. On our hardware this is more of a hint for the cache and for the CPU work order than real prefetch. A faster link can help if transfers fit in the overlap window and leave enough GPU compute and host memory bandwidth for the rest of the layer.
+
+### DeepSeek V4.1 Flash, next-layer prefetch into VRAM, 2026-10-23
+
+DSX tested whether serving more decode misses on the GPU would shorten a token step. The control ran misses on the CPU. The candidate ran the next layer's router on the current layer's expert input, then copied up to 1 or 2 predicted CPU-resident experts into the main GPU and repacked their weights on a separate CUDA stream. Routing still used the next layer's actual picks.
+
+The rig ran DeepSeek V4.1 Flash 1017 with T16 experts and IQ4_NL Engram, 2 RTX 3090s, an i7-12700K and 128 GB of dual-channel DDR4-3200. The main GPU used PCIe 4.0 x16, measured at about 24.6 GB/s from the host. The second GPU used PCIe 3.0 x4 and held a fixed set of experts. Each cell is 1 run of 400 generated tokens (ext). The log does not specify the prompt or seed.
+
+| Decode | Prefetch off | Up to 1 expert per layer | Up to 2 experts per layer |
+|---|---:|---:|---:|
+| Expert deferral off | 33.12 tok/s | 25.30 tok/s | 22.19 tok/s |
+| Lower-ranked CPU experts deferred by 1 layer | 37.35 tok/s | 28.30 tok/s | 20.66 tok/s |
+
+With deferral off, the 2-expert variant handled 49.4% of the CPU-bound picks and cut CPU expert busy time from 12.2 to 6.3 ms per token. Decode still slowed by a third. The copy and repack kernels competed with attention on the GPU. The transfers also shared DRAM bandwidth with the CPU experts, and about half the copied experts went unused. On a separate 2,046-token decode eval, KL was 0.2082 with prefetch off and 0.2048 with the 2-expert variant. Top-1 agreement was 82.55% and 82.45%, respectively.
+
+DSX left prefetch off. Revisit if weights can be copied in their final layout with DMA, or if a confidence threshold can cut wasted bytes enough to fit the available overlap. Time the whole decode step with prefetch off and on, and check attention time and concurrent DRAM reads. The fraction of CPU misses served by the GPU only measures one part of the change.
+
+[DSX implementation](https://github.com/lxe/dsx/commit/ec68799ae659b31d01b2e2e6ddb74855b13b0af8), [benchmark log](https://github.com/lxe/dsx/blob/60e9870b74509825f2f8de088306d82260f0fd87/bench/results/2026-10-22-102/pf102.out#L4-L35), [resource budget](https://github.com/lxe/dsx/blob/60e9870b74509825f2f8de088306d82260f0fd87/docs/budget-102.md#4-dsx_prefetch-against-this-budget-negative-result).
 
 ## Transfer checklist
 
@@ -67,3 +84,4 @@ The limit: an expert takes 1.4 ms over PCIe 3.0 and a layer takes 0.4-0.7 ms. Pr
 3. Count swaps per token and their cost. A policy with more hits and many more moves can be slower.
 4. Test on short answers separately (tool calls). They see a colder cache.
 5. For any quality check, freeze the cache content.
+6. Before enabling next-layer prefetch, measure how long copy and repack take alongside attention and CPU expert reads. Compare whole-token time with the same placement and cache policy.

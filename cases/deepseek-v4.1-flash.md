@@ -54,3 +54,7 @@ Runs on Maya (a Strata fork for DeepSeek) with our patches, on the rig in [READM
 1. Once misses are ~10% of a round, stop adding VRAM for experts and work on the constant part.
 2. A short test promised +27% for the UD quant, real generation gave +2%. Decide on replay.
 3. The profile file keeps growing. Freeze a copy per A/B arm.
+
+## DSX on 2 RTX 3090s
+
+DSX tested next-layer expert prefetch on DeepSeek V4.1 Flash 1017 with T16 experts offloaded to dual-channel DDR4. Prefetching up to 2 experts per layer covered 49.4% of CPU-bound picks, while decode fell from 33.12 to 22.19 tok/s with deferral off (ext, 1 run per arm). The copy and repack work competed with attention, and transfers shared DRAM bandwidth with the remaining CPU experts. [Experiment and transfer check](../playbook/04-live-expert-cache.md#deepseek-v41-flash-next-layer-prefetch-into-vram-2026-10-23).

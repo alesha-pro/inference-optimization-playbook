@@ -1,6 +1,6 @@
 # Inference optimization playbook
 
-A map of 115 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
+A map of 116 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
 
 It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash and Tencent Hy4 Flash on 4x RTX 3090 with experts offloaded to RAM, and Inkling 2 Mini on a single RTX 3090 with every expert in VRAM. The big models do not fit in 96 GB of VRAM at the quants we wanted. Engines: Strata, Maya forks, an exllamav3 fork, llama.cpp, vLLM, most of them patched by hand.
 
@@ -36,7 +36,7 @@ It is written for 2 readers:
 - **People** who tune local inference and want to know what is worth trying before they spend a week on it.
 - **Coding agents** that do the tuning for them. The repo root is a ready skill.
 
-The numbers are from one rig. Yours will be different. The mechanisms are the same on any box with GPUs, a CPU and RAM, and chapters 01-15 each end with a checklist for moving the idea to another model.
+Most numbers come from the rigs described in the cases. External results, including DSX on 2 RTX 3090s, state their own hardware. Chapters 01-15 each end with a checklist for moving the idea to another model.
 
 ## Start
 
@@ -105,7 +105,7 @@ python3 tools/route_sim.py --demo uniform --fraction 0.3
 
 ## What it does not have
 
-A benchmark harness, data on concurrent load, and hardware other than our rig. The tools here help to orient, they do not launch or time a server.
+A benchmark harness or data on concurrent load. The tools here help to orient, they do not launch or time a server.
 
 ## How it is maintained
 
