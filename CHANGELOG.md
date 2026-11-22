@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- Added PL-22, a DSX measurement of next-layer expert prefetch during DeepSeek V4.1 Flash decode on 2 RTX 3090s, to chapter 04 and the DeepSeek case.
 - Added Inkling 2 Mini on one RTX 3090. Documented on-demand global KV, depth-dependent CPU placement, exact scalar codebook lookup, two-limb NVFP4 products and verified suffix copying.
 
 ## 2026-11-21, Inkling 2 Mini engine

@@ -57,7 +57,7 @@ Find the column closest to your model by traits, not by name.
 | Side table | Engram 161 GB | PLE 27-29 GB | | | Engram 59 GiB | none identified |
 | Engine | Maya | Strata | exllamav3 fork, Maya | maya-mm3 | Maya | maya-ik2 |
 | Cards | layer split on 4 | layer split, 2 are enough for decode | TP when fully in VRAM | layer split | TP on 4, TP with a CPU lane under partial placement | 1 |
-| A miss is served by | CPU lane | CPU | PCIe copy (Maya-M), VRAM cache (TP fork) | CPU lane | CPU lane | managed global KV can spill to host RAM |
+| A miss is served by | CPU lane. In DSX on 2 RTX 3090s, predicting and copying misses to the main GPU slowed decode (ext, [04](../playbook/04-live-expert-cache.md#deepseek-v41-flash-next-layer-prefetch-into-vram-2026-10-23)) | CPU | PCIe copy (Maya-M), VRAM cache (TP fork) | CPU lane | CPU lane | managed global KV can spill to host RAM |
 | Drafter | DSpark | DFlash2, threshold 0.5, Cyrillic draft vocabulary | MTP with draft length 1 | DSpark with a cost-based window | native MTP, adaptive width | official DSpark Mini |
 | One of the big gains | prefill 32K 430 → 2,199 tok/s (DMA for all formats and more) | DFlash2: +44-46% decode | TP: 48.3 → 66-68 tok/s | K/V gathered into VRAM: prefill 64K ×3.3 | block and tile: 1-card prefill ×3.4-3.6 (full build) | all experts stay resident at short depth with a 1M window configured |
 | The surprise | a short test promised +27%, real generation gave +2% | 46 CPU threads dropped decode to 20-60 tok/s | DIMM heat: 22.7 → 6.6 tok/s in minutes | the "service profile" was ~300 tokens of 1 session | the first turn matched, the second diverged | copy throughput depends on the continuation |
