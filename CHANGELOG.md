@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-24
+
+- Added Ling-3.2-air (`maya-ling`) on 1x and 2x RTX 3090: 12 ledger rows (`PL-22`, `MS-14..16`, `MG-17`, `PF-18..20`, `SD-17..18`, `AG-13..14`), sections in chapters 02, 04, 07, 08, 11, 12, and `cases/ling-3.2-air.md`. Documented tiled Flash-MLA and macro-block prefill, inline D2D cache warm, `TILE=32` MLA decode, `blk.42` MTP with exact KDA state rollback, 4-slot RAM KDA prefix cache, lent-VRAM block-streaming Vision (`qwen3_moe_vit`), and negative results (`--ep-prefill` at ~73% residency, `kda_rec_split=8`, uncapped 47 CPU threads, `be=0.50` MTP backoff).
+
 ## 2026-11-21
 
 - Added Inkling 2 Mini on one RTX 3090. Documented on-demand global KV, depth-dependent CPU placement, exact scalar codebook lookup, two-limb NVFP4 products and verified suffix copying.

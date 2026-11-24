@@ -1,6 +1,6 @@
 # Speculative decoding on MoE with offload
 
-Covers Qwen3.8-Flash-Next (DFlash2, MTP), DeepSeek V4.1 Flash (DSpark), MiniMax-M3.1-Flash (DSpark), GLM-5.3-Flash (MTP, DFlash2), Hy4 Flash (MTP, DFly2).
+Covers Qwen3.8-Flash-Next (DFlash2, MTP), DeepSeek V4.1 Flash (DSpark), MiniMax-M3.1-Flash (DSpark), GLM-5.3-Flash (MTP, DFlash2), Hy4 Flash (MTP, DFly2), Inkling 2 Mini (suffix, DSpark), Ling-3.2-air (MTP).
 
 > **Read when:** a drafter exists or you plan to add one. **Skip when:** requests are batched (speculation lost under batching here). **Ledger tags:** `#drafter`.
 
@@ -113,6 +113,29 @@ The official DSpark drafter (3 dense layers, taps of the target's visits 5, 23, 
 | rewrite of a given text | 3.58 | 4.30 | 5.89 |
 
 The verify window decides the gain, not the acceptance alone. With all experts in VRAM a plain step is 7.8 ms, and a window's experts are the union of its tokens' picks: 2.39× one token's at window 4, 2.76× at window 5, 3.59× at window 8 (traced over 255 tokens of prose and of code). The estimate for a well-built verify: ~12 ms at window 4, ~13 ms at window 5, plus ~2 ms of drafting, so prose barely breaks even and code gains ~+45%. A verify through the general prompt path cost 41 ms, which loses everywhere. Two external vLLM builds report the same shape: 2× RTX 3090 216 tok/s single user, one RTX 5090 prose +14% and code +67% over its own plain decode.
+
+## MTP on hybrid KDA + MLA with exact state rollback (Ling-3.2-air, 2026-11-24)
+
+**Load and control.** `Ling-3.2-air-R3-test.gguf` (58 GiB), `maya-ling` (`ling32-air`), `blk.42` native MTP (512 experts), INT8 KV, `temp=0`, 256 generated tokens.
+
+**Mechanism:**
+- **Exact KDA state and conv rollback (`kda_prep_window`, `kda_rec_window_q8`, `kda_conv_rollback`, `kda_commit_window`):** snapshots `conv_state` before a `W`-token verify (`W <= 4`), writes the speculative recurrent state into `state_tmp` leaving committed `state` untouched, and on `a < W` accepted tokens replays `0..a-1` in-register from untouched `state`. That keeps the recurrent state identical to single-token decode.
+- **CUDA-graphed `W=1..4` verify + on-device confidence gate:** captures separate CUDA graphs per window width on `kGpu` (2 GPUs) and uses single-transfer `RoutePackWin` on `kCpu` (1 GPU). Drafts stop on device (`top1_prob_f32` + `argmax_rows_f32`) below `--draft-floor 0.50`, avoiding 157K-vocab D2H copies. Live `--serve` uses lossless rejection sampling (`max(0, p_target - p_draft)`).
+- **Adaptive `spec=auto` policy:** `base_k=1, max_k=2` on 2 GPUs (`kGpu`, 97-99% hits) so verify stays fast without doubling cold misses; `base_k=2, max_k=2` with low backoff threshold `be=0.25` on 1 GPU (`kCpu`, 83-88% hits), where verifying `W=3` amortizes CPU-lane RAM reads across threads at nearly flat wall time.
+
+| Setup, workload | `k=0` (tok/s) | `k=2` (tok/s) | `spec=auto` (tok/s) | Acceptance (`auto`) | Gain (`auto` vs `k=0`) |
+|---|---:|---:|---:|---:|---|
+| 2x 3090 (`kGpu`), EN (cold) | 104.39 | 114.2 | 117.51 | 71.8% (1.97 tok/step) | +12.6% |
+| 2x 3090 (`kGpu`), RU (cold) | 109.23 | 124.8 | 128.95 | 75.4% (1.98 tok/step) | +18.1% |
+| 2x 3090 (`kGpu`), Code (cold) | 102.68 | 112.1 | 116.75 | 68.2% (1.87 tok/step) | +13.7% |
+| 2x 3090 (`kGpu`), Edit (cold) | 107.34 | 125.87 | 122.93 | 73.0% (2.01 tok/step) | +14.5% (+17.3% at `k=2`) |
+| 2x 3090 (`kGpu`), 2K prompt (warm) | 120.31 | 141.1 | 143.79 | 78.0% (2.06 tok/step) | +19.5% (+48.7% vs v0 real, +40.7% vs v0 synth) |
+| 1x 3090 (`kCpu`), EN (cold) | 82.55 | 111.38 | 109.35 | 70.1% | +32.5% (+34.9% at `k=2`) |
+| 1x 3090 (`kCpu`), Code (cold) | 83.96 | 115.15 | 114.28 | 73.3% | +36.1% (+37.1% at `k=2`) |
+| 1x 3090 (`kCpu`), Edit (cold) | 76.01 | 107.38 | 106.06 | 75.8% | +39.5% (+41.3% at `k=2`) |
+| 1x 3090 (`kCpu`), 2K prompt (warm) | 79.24 | 104.48 | 106.69 | 65.9% | +34.6% |
+
+**Quality and rejected parameter.** Across EN, RU, Code and Edit (`256` tokens each), `--mtp --spec-k 0` matched `--spec-k 1`, `2`, `3`, and `auto` on 256/256 (100.0%) greedy token IDs (with fixed `--expert-vram-gib` or `--mtp` loaded so `blk.42` does not shift expert placement). Two bugs had broken parity and speed before the fix: a conditional `__syncthreads()` inside `if (half == 0)` in `kda_rec_window_q8_kernel` (`first_diff=3..22`), and an off-by-1 RoPE position in `mtp_draft` (fixing it lifted acceptance +5-7%). Rejected: high backoff threshold `be=0.50` on 1 GPU (`k=2`) prematurely paused drafting and dropped `1x_code` from 114.3 to 96.1 tok/s.
 
 ## Transfer checklist
 

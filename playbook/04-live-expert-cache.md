@@ -1,6 +1,6 @@
 # The live expert cache
 
-Covers DeepSeek V4.1 Flash, MiniMax-M3.1-Flash, GLM-5.3-Flash, Qwen3.8-Flash-Next, Hy4 Flash.
+Covers DeepSeek V4.1 Flash, MiniMax-M3.1-Flash, GLM-5.3-Flash, Qwen3.8-Flash-Next, Hy4 Flash, Ling-3.2-air.
 
 > **Read when:** experts move between RAM and VRAM while the engine runs, or a static set is close to random. **Skip when:** everything fits in VRAM. **Ledger tags:** `#offload` `#weak-skew` `#strong-skew`.
 
@@ -15,6 +15,7 @@ A live cache moves an expert from RAM to VRAM when it gets hot in the current re
 | Our exllamav3 fork for GLM | CLOCK cache in VRAM on top of a fixed hot set | 180-480 slots. Admission to the cache only for small batches |
 | Strata for Qwen | `--expert-cache auto`: sized to free VRAM, adapts to routing | the first requests after start are slower |
 | Maya for Hy4 Flash | start from the profile of past answers, change the GPU cache content by decaying frequency | after prefill the freed VRAM also goes to experts (see below) |
+| `maya-ling` for Ling-3.2-air | single-pass O(N) adaptive fetch (`fetch_resolve_fast`), async round-robin CPU-lane admission, inline D2D warm from prefill | O(1) exit on zero misses; 0.000 s post-prefill warm stall |
 
 ## What different policies gave (MiniMax, simulator on traces of real answers)
 
@@ -41,6 +42,17 @@ On GLM a live cache of 480 slots on top of 50% fixed experts gave 94-95% hits. T
 | Give the free prefill memory to experts during decode | On 1 GPU the permanent and the temporary sets were merged into one adaptive cache. The CPU also parallelized the quantization of intermediate activations. These are parts of the single-GPU build from [07](07-prefill.md) | Compare the number of resident experts, hits and latency on the transitions prefill → decode → new prefill. Fix the budget for both runs |
 
 A long control with the same task in an agent harness (DSH) gave for the final 2-GPU base: 47 calls, context up to 97,834, average decode 74.2 tok/s, range 51-87, VRAM hits 79.8%. An early version of the CPU lane without prefetch got 47.8 tok/s in another session on the same task. The agent trajectories differed, so the gap between the sessions cannot be assigned to one fix.
+
+## O(N) adaptive fetch and async admission (Ling-3.2-air, 2026-11-24)
+
+**Problem.** Small experts (5.9M params, ~2.61 MB in R3) with 512 experts per layer make routing lookup and victim selection a measurable share of step latency, and synchronous post-prefill cache warming (`warm_vram_cache()`) added 0.52-0.95 s to TTFT.
+
+**Change.**
+- **3-barrier warp-parallel grouped router (`router_grouped`) + `fetch_resolve_fast`:** O(1) immediate exit when `n_miss == 0`, and O(N) single-pass parallel victim selection when misses occur.
+- **Async round-robin CPU-lane cache admission:** paired with packed 96-byte routing metadata (`pack_route_cpu`), promotes hot missed experts asynchronously off the decode critical path.
+- **Inline D2D cache warm during prefill:** promotes hot staged experts directly via D2D (~936 GB/s) from `pf_stage` while already resident on the GPU, replacing `warm_vram_cache()`.
+
+**Result.** Cache-warm stall dropped from 0.95 s (1x RTX 3090) and 0.52 s (2x RTX 3090) to 0.000 s. Combined with `TILE=32` MLA decode and fused norms ([02](02-serving-a-miss.md)), 1x RTX 3090 decode reached 79.24-82.55 tok/s at 8K (vs 74.18 `cpu` / 57.95 `gpu`), 73.54 tok/s at 36K (vs 45.10), and 51.51 tok/s at 260K filled (89.0% hits). On 2x RTX 3090 (~72-74% resident), hit rates held at 97-99.8% and non-spec decode reached 120.31 tok/s at 8K and 63.49 tok/s at 260K filled.
 
 ## Observations
 

@@ -34,6 +34,7 @@ RAM history in 2026:
 | MiniMax-M3.1-Flash | 57 MoE layers × 128, top-4 + shared, 7,296 in total | 228 | an expert at 2 bits is ~15-18 MB, large | [minimax-m3.1-flash.md](minimax-m3.1-flash.md) |
 | Hy4 Flash | 512 experts per layer, top-16 | | SWA and DSA attention layers, Engram 59 GiB, built-in MTP drafter, vision projector, 262,144 window | [hy4-flash.md](hy4-flash.md) |
 | Inkling 2 Mini | 24 physical layers x 128, top-8; 48 logical visits | 384 | native 1M window, vision, global and sliding attention | [inkling-2-mini.md](inkling-2-mini.md) |
+| Ling-3.2-air | 40 MoE layers x 512, top-8 + shared + MTP blk.42. 20,480 trunk routed experts | 320 | 124.4B/5.1B, 35 KDA + 7 gated MLA, 5.9M experts, 262K window, `qwen3_moe_vit` vision | [ling-3.2-air.md](ling-3.2-air.md) |
 
 Quants used for the main work:
 
@@ -42,25 +43,26 @@ Quants used for the main work:
 - GLM: EXL3 2.05 / 3.05 / 4.05 bpw and Maya-M.
 - MiniMax: unsloth UD-Q2_K_XL and Maya-S.
 - Hy4 Flash: AngelSlim Q3_K GGUF with MTP Q3_K and Q8 KV, plus an IQ2 expert set for the low-RAM modes.
+- Ling-3.2-air: R3-test GGUF (58 GiB: IQ3_XXS gate/up + Q4_K down, edge layers Q4_K), Q8_0 (127 GiB oracle), and `mmproj` BF16 (829.1 MiB).
 
-Engines: Strata, its Maya forks (for DeepSeek, GLM, MiniMax, Hy4), our fork of exllamav3, llama.cpp and vLLM.
+Engines: Strata, its Maya forks (for DeepSeek, GLM, MiniMax, Hy4, Inkling, Ling), our fork of exllamav3, llama.cpp and vLLM.
 
 ## Traits, and what stayed in the working setup
 
 Find the column closest to your model by traits, not by name.
 
-| | DeepSeek V4.1 Flash | Qwen3.8-Flash-Next | GLM-5.3-Flash | MiniMax-M3.1-Flash | Hy4 Flash | Inkling 2 Mini |
-|---|---|---|---|---|---| --- |
-| Experts per layer | 384, top-6 | 512 | 288, top-8 + shared | 128, top-4 + shared | 512, top-16 | 128, top-8 |
-| Routing skew | strong: top-100 cover 70% of picks | strong: ~24% of experts in VRAM give 74-79% hits | weak: the cold half gets 41% of picks | weak: profile 64-69% vs random 61% (sim) | not classified. Input stats cover 48% of generation picks, the answer's own stats 96% | not measured |
-| Size of 1 expert | 10.6-12.6 MB (Maya-S) | | 9.4 MB at 3.05 bpw | ~15-18 MB at 2 bits | | 4.3 MiB NVFP4 or 8.1 MiB Q8_0 |
-| Side table | Engram 161 GB | PLE 27-29 GB | | | Engram 59 GiB | none identified |
-| Engine | Maya | Strata | exllamav3 fork, Maya | maya-mm3 | Maya | maya-ik2 |
-| Cards | layer split on 4 | layer split, 2 are enough for decode | TP when fully in VRAM | layer split | TP on 4, TP with a CPU lane under partial placement | 1 |
-| A miss is served by | CPU lane | CPU | PCIe copy (Maya-M), VRAM cache (TP fork) | CPU lane | CPU lane | managed global KV can spill to host RAM |
-| Drafter | DSpark | DFlash2, threshold 0.5, Cyrillic draft vocabulary | MTP with draft length 1 | DSpark with a cost-based window | native MTP, adaptive width | official DSpark Mini |
-| One of the big gains | prefill 32K 430 → 2,199 tok/s (DMA for all formats and more) | DFlash2: +44-46% decode | TP: 48.3 → 66-68 tok/s | K/V gathered into VRAM: prefill 64K ×3.3 | block and tile: 1-card prefill ×3.4-3.6 (full build) | all experts stay resident at short depth with a 1M window configured |
-| The surprise | a short test promised +27%, real generation gave +2% | 46 CPU threads dropped decode to 20-60 tok/s | DIMM heat: 22.7 → 6.6 tok/s in minutes | the "service profile" was ~300 tokens of 1 session | the first turn matched, the second diverged | copy throughput depends on the continuation |
+| | DeepSeek V4.1 Flash | Qwen3.8-Flash-Next | GLM-5.3-Flash | MiniMax-M3.1-Flash | Hy4 Flash | Inkling 2 Mini | Ling-3.2-air |
+|---|---|---|---|---|---| --- | --- |
+| Experts per layer | 384, top-6 | 512 | 288, top-8 + shared | 128, top-4 + shared | 512, top-16 | 128, top-8 | 512, top-8 + shared (8 groups, top-4) |
+| Routing skew | strong: top-100 cover 70% of picks | strong: ~24% of experts in VRAM give 74-79% hits | weak: the cold half gets 41% of picks | weak: profile 64-69% vs random 61% (sim) | not classified. Input stats cover 48% of generation picks, the answer's own stats 96% | not measured | not measured globally; live hits 83-96% on 1 card (~32% VRAM) and 97-99.8% on 2 (~73%) |
+| Size of 1 expert | 10.6-12.6 MB (Maya-S) | | 9.4 MB at 3.05 bpw | ~15-18 MB at 2 bits | | 4.3 MiB NVFP4 or 8.1 MiB Q8_0 | ~2.61 MB (R3: IQ3_XXS + Q4_K) |
+| Side table | Engram 161 GB | PLE 27-29 GB | | | Engram 59 GiB | none identified | none (ViT `mmproj` 829 MiB streamed on demand) |
+| Engine | Maya | Strata | exllamav3 fork, Maya | maya-mm3 | Maya | maya-ik2 | `maya-ling` |
+| Cards | layer split on 4 | layer split, 2 are enough for decode | TP when fully in VRAM | layer split | TP on 4, TP with a CPU lane under partial placement | 1 | layer split on 1 or 2 |
+| A miss is served by | CPU lane | CPU | PCIe copy (Maya-M), VRAM cache (TP fork) | CPU lane | CPU lane | managed global KV can spill to host RAM | CPU lane (`kCpu` on 1 card), CUDA-graphed VRAM cache (`kGpu` on 2) |
+| Drafter | DSpark | DFlash2, threshold 0.5, Cyrillic draft vocabulary | MTP with draft length 1 | DSpark with a cost-based window | native MTP, adaptive width | official DSpark Mini | native `blk.42` MTP, adaptive `spec=auto`, exact KDA rollback |
+| One of the big gains | prefill 32K 430 → 2,199 tok/s (DMA for all formats and more) | DFlash2: +44-46% decode | TP: 48.3 → 66-68 tok/s | K/V gathered into VRAM: prefill 64K ×3.3 | block and tile: 1-card prefill ×3.4-3.6 (full build) | all experts stay resident at short depth with a 1M window configured | 32K prefill 248 → 3,119 tok/s (2 cards); 260K decode +64.4%; MTP up to 143.8 tok/s |
+| The surprise | a short test promised +27%, real generation gave +2% | 46 CPU threads dropped decode to 20-60 tok/s | DIMM heat: 22.7 → 6.6 tok/s in minutes | the "service profile" was ~300 tokens of 1 session | the first turn matched, the second diverged | copy throughput depends on the continuation | EP prefill relay lost at ~73% residency; `be=0.50` MTP backoff hurt 1x CPU lane |
 
 An empty cell means the source notes do not state it.
 
@@ -72,5 +74,5 @@ An empty cell means the source notes do not state it.
 | Weak global skew, few large experts | MiniMax-M3.1-Flash, GLM-5.3-Flash |
 | Fits fully in VRAM at low bits on several cards | GLM-5.3-Flash (TP section) |
 | A huge side table next to the weights | DeepSeek (Engram 161 GB), Hy4 Flash (Engram on NVMe) |
-| A fresh port into a new engine, from parity to release | Hy4 Flash |
-| 1 or 2 consumer GPUs and a lot of RAM | Hy4 Flash, Qwen3.8-Flash-Next |
+| A fresh port into a new engine, from parity to release | Hy4 Flash, Ling-3.2-air |
+| 1 or 2 consumer GPUs and a lot of RAM | Hy4 Flash, Qwen3.8-Flash-Next, Ling-3.2-air |

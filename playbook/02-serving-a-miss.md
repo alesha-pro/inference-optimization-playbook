@@ -1,6 +1,6 @@
 # Memory tiers and where to serve a miss
 
-Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash.
+Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash, Ling-3.2-air.
 
 > **Read when:** decode has misses and you choose between computing them on the CPU and copying them over PCIe. **Skip when:** every expert is in VRAM. **Ledger tags:** `#offload` `#cpu-lane` `#pcie`.
 
@@ -49,6 +49,28 @@ Computing cold experts on the CPU in parallel with the hot ones on the GPU: 2 GP
 To check transfer: time the slower of the 2 executors, the load on the RAM channels, and the cost of merging the partial results.
 
 The same idea ported into upstream Maya v1.1.69 let tensor parallel keep working when not all experts fit in VRAM ([05](05-multi-gpu.md), [mw00/project-maya#1068](https://github.com/mw00/project-maya/pull/1068)).
+
+## Decode path and CPU lane (Ling-3.2-air, 2026-11-24)
+
+**Load and control.** R3-test (58 GiB: IQ3_XXS gate/up + Q4_K down), `maya-ling` (`ling32-air`, [mw00/project-maya#1224](https://github.com/mw00/project-maya/pull/1224)), 1x and 2x RTX 3090, 8-channel DDR4-2133, real tokenized prompts (`temp=0`, `k=0` non-speculative).
+
+**What changed:**
+- **Packed 96-byte route metadata (`pack_route_cpu`) and CPU thread cap:** coalesced routing metadata into a single D2H transfer for `kCpu` mode and capped the CPU lane at `min(phys_cores, 24)`. Using all 47 active EPYC cores regressed decode by -10 tok/s vs 12-24 threads due to DDR4 memory-controller contention and barrier latency.
+- **Constant-part bottlenecks cut alongside the CPU lane:** portable `TILE=32` WMMA split-K MLA decode (`mla_dec_wmma` with vectorized coalesced KV loads and `T=1..4` causal windows; `TILE=16` on `sm_70/75`), fused residual + RMSNorm + Q8_0 (`add_rmsnorm_q8` / `add2_rmsnorm_q8`), and by-value CUDA-graph step params (`set_step`/`set_step_win`) with reverse-edge P2P sync (fixing `--prefill-chunk 1` graph parity 64/64 bit-exact).
+
+| Setup (R3, `k=0`) | v0 baseline (tok/s) | After (tok/s) | Gain |
+|---|---:|---:|---|
+| 2x RTX 3090, 8K ctx (2K prompt) | 96.68 | 120.31 | +24.4% |
+| 2x RTX 3090, 36K ctx (32K prompt) | 76.89 | 102.54 | +33.4% |
+| 2x RTX 3090, 262K ctx (2K prompt) | 102.03 | 117.83 | +15.5% |
+| 2x RTX 3090, 262K ctx (260K filled, INT8 KV) | 38.63 | 63.49 | +64.4% |
+| 1x RTX 3090, 8K ctx (2K prompt) | 57.95 (`gpu`) / 74.18 (`cpu`) | 79.24-82.55 | +6.8-36.7% |
+| 1x RTX 3090, 36K ctx (32K prompt) | 45.10 | 73.54 | +63.1% |
+| 1x RTX 3090, 262K ctx (260K filled, INT8 KV) | untested | 51.51 (89.0% hits) | fits 1x 24 GB GPU |
+
+**What failed:** splitting the 128x128 KDA decode recurrence across 8 thread blocks (`kda_rec_split=8`) added global writeback/reduction overhead and measured slower than the 1-block 256-thread register-resident recurrence.
+
+**Decision.** `TILE=32` MLA decode, fused norms, `pack_route_cpu`, and the `min(phys_cores, 24)` cap shipped. `kda_rec_split=8` was discarded (revisit only on wider heads where 1-block register state underutilizes SMs).
 
 ## What "serve the miss cheaper" is worth
 

@@ -1,6 +1,6 @@
 # Prefill and re-reading the prompt
 
-Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Qwen3.8-Flash-Next, Hy4 Flash.
+Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Qwen3.8-Flash-Next, Hy4 Flash, Ling-3.2-air.
 
 > **Read when:** reading the prompt is slow, on a cold input or on every turn. **Skip when:** the time goes to generation. **Ledger tags:** `#prefill` `#reread` `#long-context`.
 
@@ -101,6 +101,31 @@ These are per-factor microbenchmarks. The final combination was checked separate
 - A looped model's message gates over a chunk as cuBLAS SGEMMs (from 32 tokens): +24% prefill, 2,500 tok/s at 4K-65K on one RTX 3090 (llama.cpp: 1,052).
 - Prompts up to 96 tokens (a chat turn) read each expert once for up to 8 of its tokens instead of decoding it to FP16 for a GEMM: 12 new tokens 118 → 56 ms.
 - Remaining cost at 16K, per 2,048-token chunk (721 ms): FP16 copies of NVFP4 experts 107 ms, expert GEMMs ~150, per-expert gather/SwiGLU/scatter launches 73, flash attention 66, dense GEMMs ~150. GEMMs straight over NVFP4 without the copies are the next step.
+
+## Tiled Flash-MLA, macro-prefill and stage pipeline (Ling-3.2-air, 2026-11-24)
+
+**Load and control.** `Ling-3.2-air-R3-test.gguf` (58 GiB), `maya-ling` (`ling32-air`), 1x and 2x RTX 3090 (PCIe 3.0 x16, ~13 GB/s per GPU), real tokenized prompts (`temp=0`). On the exact `ids_2048.txt` prompt, v0 measured 492.7 tok/s (1 GPU) and 853.6 tok/s (2 GPUs), and collapsed to 211.4 / 248.0 tok/s at 32K.
+
+**Changes:**
+- **Tiled online-softmax Flash-MLA:** replaced `glmd::mla_prompt_wmma` with tiled online-softmax Flash-MLA (`BQ=256, BK=512`), eliminating the O(T^2) score explosion that capped 32K prefill at 211-248 tok/s.
+- **Macro-block VRAM borrowing (`BigScratch`):** temporarily borrows the unused expert cache tail during prefill to run 4,096-8,192-token MoE logical passes (amortizing cold-expert PCIe transfers 2-4x) while keeping KDA and MLA tiled at 512-2,048.
+- **Zero-stall inline D2D cache warm:** replaced the synchronous post-prefill `warm_vram_cache()` (0.95 s on 1 GPU, 0.52 s on 2 GPUs) with inline D2D promotion (~936 GB/s) from `pf_stage` while experts are already on GPU (`0.000 s` stall).
+- **2-GPU micro-batch stage pipeline + contiguous `kStage=128` staging ring:** overlaps chunk `k+1` on GPU 0 with chunk `k` on GPU 1, runs `moe_sort` once per layer, and replaces ~400 blocking host event syncs per chunk with device-side `cudaStreamWaitEvent` ring sync (fixing a cross-layer `pf_stage`/`pf_pmap` DMA reuse race, which also improved 256-pos INT8 KV vs v0 FP16 KL from `7.70e-3` to `6.98e-3`).
+
+| Setup (R3-test) | Prompt / KV | v0 baseline (tok/s) | After (tok/s) | Gain | Warm stall |
+|---|---|---:|---:|---:|---|
+| 1x RTX 3090 | 2,048 tok (FP16 8K) | 492.7 | 668.4 | 1.36x | 0.95 s -> 0.000 s |
+| 1x RTX 3090 | 8,192 tok (FP16 16K) | 447.7 | 1,880.3 | 4.20x | 0.95 s -> 0.000 s |
+| 1x RTX 3090 | 32,768 tok (INT8 36K) | 211.4 (155.0 s) | 2,081.0 (15.7 s) | 9.84x | 0.95 s -> 0.000 s |
+| 1x RTX 3090 | 260,000 tok (INT8 262K) | untested | 709.7 (366.4 s) | | 0.000 s |
+| 2x RTX 3090 | 2,048 tok (FP16 8K) | 853.6 | 1,252.2 | 1.47x | 0.52 s -> 0.000 s |
+| 2x RTX 3090 | 8,192 tok (FP16 16K) | 670.4 | 2,475.4 | 3.69x | 0.52 s -> 0.000 s |
+| 2x RTX 3090 | 32,768 tok (INT8 36K) | 248.0 (132.1 s) | 3,119.3 (10.5 s) | 12.58x | 0.52 s -> 0.000 s |
+| 2x RTX 3090 | 260,000 tok (INT8 262K) | untested | 1,265.6 (205.4 s) | | 0.000 s |
+
+On 2x RTX 3090, a 16K NIAH run reached 3,171.1 tok/s and a 250K NIAH run (249,995 tokens, needle at 124,956) ran at 1,339.3 tok/s (186.7 s) with verbatim recall (`ZEBRA-7492-QUARTZ`).
+
+**Negative result: 2-GPU EP prefill relay (`--ep-prefill`).** On 2x RTX 3090 with R3 (~73% of experts resident in VRAM), PCIe activation gather and helper synchronization cost more than splitting the remaining ~27% cold experts over two PCIe links. Micro-batch stage pipelining (`--no-ep`) beat `--ep-prefill` and stayed the default, with EP left behind an opt-in flag. Revisit when resident share is low enough that cold-expert DMA dominates prefill time (as on DeepSeek at ~47% residency).
 
 ## Transfer checklist
 

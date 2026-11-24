@@ -1,8 +1,8 @@
 # Loading, page cache, THP and big tables on NVMe
 
-Covers Qwen3.8-Flash-Next (Strata), GLM-5.3-Flash, DeepSeek V4.1 Flash (Maya), Hy4 Flash.
+Covers Qwen3.8-Flash-Next (Strata), GLM-5.3-Flash, DeepSeek V4.1 Flash (Maya), Hy4 Flash, Ling-3.2-air (`maya-ling`).
 
-> **Read when:** the service starts slowly, or system RAM is the limit because of one big table. **Skip when:** loading and RAM are fine. **Ledger tags:** `#load` `#big-table` `#ram`.
+> **Read when:** the service starts slowly, system RAM is the limit because of one big table, or a side component such as a vision tower crowds out KV and experts. **Skip when:** loading, RAM and component VRAM are fine. **Ledger tags:** `#load` `#big-table` `#ram`.
 
 ## Loading
 
@@ -39,6 +39,19 @@ Several of these models carry a large n-gram embedding table next to the weights
 **How to check precision.** All 98,544 comparisons of read rows and 258 full logit vectors on 2 inputs matched byte for byte. In free generation on another input of 57,587 tokens only the first 273 IDs matched: between runs the number of experts in the temporary GPU cache could change. A separate variant with a mapped buffer and a fixed budget matched both checked HTTP answers, at 944.9 / 29.3 tok/s on the first. These are 3 independent checks: storage bytes, computation on a fixed history, and server behavior.
 
 **How to transfer.** Fits a large table where the indices of the needed rows are known and a small share of the file is read per request. Record the count of unique rows, the physical bytes of the block device, hits, latencies at different queue depths and the peak RAM of the full service tree. In an A/B fix separately the OS file cache, the application row cache, the random seed and the GPU buffer sizes. A large matrix that every step reads in full needs a different cost calculation.
+
+## Lent-VRAM block-streaming Vision tower (Ling-3.2-air, 2026-11-24)
+
+**Problem.** Keeping the `qwen3_moe_vit` + `linear_proj` BF16 vision weights (`829.1 MiB`, 333 tensors) resident on GPU 0 steals expert slots or cuts max context on a 24 GB card, while moving the ViT to the CPU ([03](03-expert-profile-and-placement.md), Inkling 2 Mini) cost ~4.5 s per new image.
+
+**Change.** `maya-ling` keeps `mmproj` memory-mapped in host RAM (0.00 GiB permanent VRAM). When an image arrives, it borrows the tail of GPU 0's `vram_pool` (`room=tail`), streams 1 ViT block (~32 MiB) at a time over PCIe, computes native BF16 GEMMs (`sm_80+`, FP16 fallback on `sm_70/75`), and restores any overlapped expert slots from `host_blobs` right after image encoding.
+
+**Result.**
+- Numerical parity vs PyTorch BF16 (`384x384`, 144 merged tokens): cosine 0.999093, RMS 0.002902, encode time 224.8 ms.
+- 2x RTX 3090 end-to-end: 221.2-254.9 ms/img across 3 test images, 100% OCR and 4-quadrant 3D M-RoPE spatial recall, 113.3 tok/s live HTTP vision+MTP decode.
+- 1x RTX 3090 at full 262,144 context + image: GPU 0 used 22.37 / 23.56 GiB VRAM (6,200 expert slots preserved, 0.00 GiB permanent vision VRAM, 224.4 ms encode) and produced 100% verbatim receipt OCR.
+
+**Transfer.** Use lent-VRAM block streaming whenever an occasional side component (vision encoder, audio encoder) does not run every decode step and fits one transformer block inside the GPU pool tail, with host copies ready to restore evicted expert slots.
 
 ## Transfer checklist
 

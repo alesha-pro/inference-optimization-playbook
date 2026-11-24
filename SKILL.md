@@ -1,13 +1,13 @@
 ---
 name: inference-optimization-playbook
-description: Use when the task is to make local LLM inference faster or to explain why it is slow, especially large MoE models that do not fit in VRAM: expert offload to RAM, hot expert placement, live expert cache, CPU lane vs PCIe copy, multi-GPU (layer split, tensor parallel, expert parallel, all-reduce), prefill and re-read speed, speculative decoding and drafters, quant choice for speed, expert pruning, KV, prompt cache and session snapshots for agents, big n-gram tables on NVMe, output head cost, benchmark methodology and quality gates for engine changes. Also for porting a new model into an inference engine or planning its bring-up on given hardware. A map of 115 tested hypotheses with verdicts and numbers from DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash and Inkling 2 Mini on 1-4 RTX 3090. Not for training, prompt engineering or cloud API cost questions.
+description: Use when the task is to make local LLM inference faster or to explain why it is slow, especially large MoE models that do not fit in VRAM: expert offload to RAM, hot expert placement, live expert cache, CPU lane vs PCIe copy, multi-GPU (layer split, tensor parallel, expert parallel, all-reduce), prefill and re-read speed, speculative decoding and drafters, quant choice for speed, expert pruning, KV, prompt cache and session snapshots for agents, big n-gram tables on NVMe, output head cost, benchmark methodology and quality gates for engine changes. Also for porting a new model into an inference engine or planning its bring-up on given hardware. A map of 127 tested hypotheses with verdicts and numbers from DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash, Inkling 2 Mini and Ling-3.2-air on 1-4 RTX 3090. Not for training, prompt engineering or cloud API cost questions.
 ---
 
 # Inference optimization playbook
 
 A map of real experiments on speeding up LLM inference on consumer GPUs: what was tried, on which model, what the numbers were, what the decision was and why. All paths below are relative to the directory this file is in.
 
-The 5 offloaded models in it behaved differently. A static hot set worked on 2 and was close to random on 2 others. The cheapest way to serve a miss flipped between models on the same hardware. So there is no fixed sequence to run. Find where the user's case is on the map, then use only the results that were obtained under the same conditions.
+The 6 offloaded models in it behaved differently. A static hot set worked on 2 and was close to random on 2 others. The cheapest way to serve a miss flipped between models on the same hardware. So there is no fixed sequence to run. Find where the user's case is on the map, then use only the results that were obtained under the same conditions.
 
 ## The route
 
@@ -52,7 +52,7 @@ Both are standard-library Python, no install.
 | Which quant, hybrids, KL noise floor | `playbook/09-quants.md` |
 | Dropping, masking or merging experts | `playbook/10-pruning-and-merging.md` |
 | Agent turns are slow, prompt cache misses, A → B → A | `playbook/11-sessions-and-prompt-cache.md` |
-| Load time, THP stalls, a table too big for RAM | `playbook/12-loading-and-big-tables.md` |
+| Load time, THP stalls, a table too big for RAM, lent-VRAM vision | `playbook/12-loading-and-big-tables.md` |
 | Vocabulary projection cost | `playbook/13-output-head.md` |
 | Building a reference, replay, why a benchmark lied | `playbook/14-benchmarking-and-traps.md` |
 | Did the change keep quality, should this build ship | `playbook/15-quality-and-release-gates.md` |

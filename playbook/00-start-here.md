@@ -1,6 +1,6 @@
 # Start here: the map
 
-This playbook is a record of experiments on 5 models. They behaved differently: a static hot set that worked on one model was no better than random on another, and the cheapest way to serve a miss flipped between models on the same hardware. So this is a map, and the first job is to find where you are on it.
+This playbook is a record of experiments on 7 models. They behaved differently: a static hot set that worked on one model was no better than random on another, and the cheapest way to serve a miss flipped between models on the same hardware. So this is a map, and the first job is to find where you are on it.
 
 For every trick the chapters say what the problem was, what changed, what the control showed, and when the test is worth repeating. The numbers belong to a specific model, engine and rig ([cases/README.md](../cases/README.md)). For transfer, what matters most is being able to reproduce the original bottleneck on your setup.
 
@@ -132,7 +132,7 @@ From the Hy4 Flash port on 1, 2 and 4 cards:
 | 09 | [Quants](09-quants.md) | bits vs experts in VRAM, hybrids, the control permutation |
 | 10 | [Pruning and merging](10-pruning-and-merging.md) | REAP, REAM, masking |
 | 11 | [Sessions and prompt cache](11-sessions-and-prompt-cache.md) | anatomy of an agent turn, snapshots, A → B → A |
-| 12 | [Loading and big tables](12-loading-and-big-tables.md) | page cache, THP, n-gram tables on NVMe |
+| 12 | [Loading and big tables](12-loading-and-big-tables.md) | page cache, THP, n-gram tables on NVMe, lent-VRAM vision |
 | 13 | [Output head](13-output-head.md) | cheap estimate with an exact recheck |
 | 14 | [Benchmarking and traps](14-benchmarking-and-traps.md) | reference first, replay, the list of traps |
 | 15 | [Quality and release gates](15-quality-and-release-gates.md) | 3 levels of equivalence, what to ship |

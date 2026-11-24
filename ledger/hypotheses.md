@@ -4,7 +4,7 @@ Every idea we tried, with the verdict. Check here before you propose or build so
 
 Verdicts: ✅ worked, ❌ did not work, ◐ narrow or with conditions, ○ calculation or simulation only, not run.
 
-Models: DS = DeepSeek V4/V4.1 Flash, QW = Qwen3.8-Flash-Next, GLM = GLM-5.3-Flash, MM = MiniMax-M3.1-Flash, HY = Hy4 Flash. All numbers are from the rig in [cases/README.md](../cases/README.md) unless marked (ext). They transfer as mechanisms, not as absolute values.
+Models: DS = DeepSeek V4/V4.1 Flash, QW = Qwen3.8-Flash-Next, GLM = GLM-5.3-Flash, MM = MiniMax-M3.1-Flash, HY = Hy4 Flash, LING = Ling-3.2-air. All numbers are from the rig in [cases/README.md](../cases/README.md) unless marked (ext). They transfer as mechanisms, not as absolute values.
 
 A ❌ here means "did not pay on this model, engine and hardware". Read the reason before you drop the idea on a different setup.
 
@@ -59,6 +59,7 @@ A row without a tag of some group was not tested across that group. A missing `#
 | PL-19 | Group loads inside small latency-bound token kernels | ◐ | Inkling 2 Mini: attention residuals +2.5% bit-exact; loop gates and FP16 matvec slower (4.9 → 24 µs) | profile each kernel, registers and occupancy decide | [03](../playbook/03-expert-profile-and-placement.md) | #in-vram #decode #kernel |
 | PL-20 | All core layers' loop messages of a pass in one launch | ✅ | Inkling 2 Mini: 127.2 → 128.2 tok/s, bit-exact | looped models only | [03](../playbook/03-expert-profile-and-placement.md) | #in-vram #decode #kernel |
 | PL-21 | Image encoder on the CPU to give its VRAM to the context | ✅ | Inkling 2 Mini: 262K → 344K context with images; new image ~4.5 s on 48 cores | worth it when context, not image latency, matters | [03](../playbook/03-expert-profile-and-placement.md) | #kv #long-context #1gpu |
+| PL-22 | Single-pass O(N) adaptive fetch + async round-robin CPU-lane cache admission | ✅ | LING 1 GPU: 8K decode 74.2 → 79.2-82.6 tok/s, 36K 45.1 → 73.5 (with MS-16) | O(1) fast path when n_miss == 0 and async promotion off the decode critical path | [04](../playbook/04-live-expert-cache.md) | #offload #cpu-lane #decode |
 
 ## Where to serve a miss
 
@@ -77,6 +78,9 @@ A row without a tag of some group was not tested across that group. A missing `#
 | MS-11 | Fewer CPU lane threads than cores | ✅ | Strata 0.1.45, 1 card: 46 threads (set by the engine) 20-60 tok/s, 32 threads ~75. Strata 0.2 sets 32 itself and holds ~87 | the thread count of the CPU lane is critical, SMT does not help | [06](../playbook/06-cpu-and-ram.md) | #offload #cpu-lane #1gpu |
 | MS-12 | Specialized kernels for the quant in use | ◐ | HY: IQ2 kernels, short decode 92.6 → 99.2 tok/s. A new SWA kernel for 32 heads: 0 (attention was ~2% of the step) | profile the share first | [09](../playbook/09-quants.md) | #offload #quant #kernel |
 | MS-13 | Move complete expert layers to the CPU in order of model visits per byte when global KV occupies the GPU | ◐ | Inkling 2 Mini, 1 RTX 3090 + 24 EPYC threads, 8-channel DDR4: at 1,048,064 allocated positions a controlled synthetic-KV decode improved from 10.55 to 18.13 tok/s | count the repeated visits, preserve the dot product order and time a populated request | [06](../playbook/06-cpu-and-ram.md) | #offload #cpu-lane #1gpu #long-context |
+| MS-14 | Cap CPU lane threads at `min(phys_cores, 24)` on Zen 2 (47 active cores) | ✅ | LING 1 GPU: 47 uncapped threads regressed -10 tok/s vs 12-24 | DDR4 memory-controller contention and barrier latency | [02](../playbook/02-serving-a-miss.md), [06](../playbook/06-cpu-and-ram.md) | #offload #cpu-lane #ram #zen2 #decode |
+| MS-15 | Split 128x128 KDA decode recurrence across 8 thread blocks (`kda_rec_split=8`) | ❌ | LING: slower than 1-block 256-thread register recurrence | global writeback and reduction cost beat occupancy gain. Revisit on wider heads | [02](../playbook/02-serving-a-miss.md) | #decode #kernel #dense-ok |
+| MS-16 | `TILE=32` WMMA split-K MLA decode + fused residual/RMSNorm/Q8 + packed 96-byte CPU route struct | ✅ | LING 2 GPUs: 8K 96.7 → 120.3 tok/s, 260K filled 38.6 → 63.5 (+64.4%) | cuts dense attention traffic and F32 round-trips at depth | [02](../playbook/02-serving-a-miss.md) | #offload #cpu-lane #long-context #decode #kv #kernel |
 
 ## Several GPUs
 
@@ -98,6 +102,7 @@ A row without a tag of some group was not tested across that group. A missing `#
 | MG-14 | Each expert on 1 card instead of equal slots | ✅ | HY IQ2: VRAM 79.3 → 65.5 GB, decode 121.8 → 128.1 | padding: 8 blocks instead of 6 | [05](../playbook/05-multi-gpu.md) | #multi-gpu #tp #quant |
 | MG-15 | TP only for attention | ◐ | MM: decode +3-10%, prefill -4.8% | P2P gather shares PCIe with the expert stream. Behind a flag | [05](../playbook/05-multi-gpu.md) | #offload #multi-gpu #tp |
 | MG-16 | Send packed query heads to 3 neighbors | ❌ | HY: verify T=3 12.12 → 13.26 ms | | [07](../playbook/07-prefill.md) | #multi-gpu #tp #drafter |
+| MG-17 | 2-GPU EP prefill relay when ~73% of experts fit in VRAM | ❌ (default off) | LING 2 GPUs (~73% resident): stage pipelining (`--no-ep`) beat `--ep-prefill` | PCIe activation gather and sync cost more than splitting ~27% cold experts. Revisit at lower residency | [07](../playbook/07-prefill.md) | #offload #multi-gpu #ep #prefill |
 
 ## Prefill
 
@@ -120,6 +125,9 @@ A row without a tag of some group was not tested across that group. A missing `#
 | PF-15 | Unify structs and kernels across phases | ❌ | HY: 1 field cost 2-3% prefill, a 4-slot loop +0.35 ms short decode | revisit on a compiler or architecture change | [14](../playbook/14-benchmarking-and-traps.md) | #kernel #dense-ok |
 | PF-16 | FP8 cache in flash prefill tiles and a looped model's gates over a chunk as cuBLAS GEMMs | ✅ | Inkling 2 Mini: +24% prefill, 2,500 tok/s at 4K-65K (llama.cpp 1,052) | | [07](../playbook/07-prefill.md) | #prefill #kv #in-vram |
 | PF-17 | Short prompts read experts by groups instead of FP16 decode + GEMM | ✅ | Inkling 2 Mini: 12 new tokens 118 → 56 ms | up to ~96 tokens | [07](../playbook/07-prefill.md) | #prefill #in-vram |
+| PF-18 | Tiled online-softmax Flash-MLA (`BQ=256, BK=512`) instead of per-query WMMA | ✅ | LING: 32K prefill 1 GPU 211.4 → 2,081.0 tok/s, 2 GPUs 248.0 → 3,119.3 (with PF-19, PF-20) | eliminates O(T^2) score blowup; combined build gain | [07](../playbook/07-prefill.md) | #prefill #long-context #kv #kernel #dense-ok |
+| PF-19 | Macro-block prefill (4K-8K MoE pass) borrowing expert cache tail while tiling KDA/MLA, plus 2-GPU stage pipeline | ✅ | LING: 1 GPU 8K 447.7 → 1,880.3 tok/s, 260K 709.7; 2 GPUs 8K 670.4 → 2,475.4, 260K 1,265.6 | amortizes cold-expert PCIe transfers 2-4x and keeps both cards busy | [07](../playbook/07-prefill.md) | #offload #prefill #multi-gpu #layer-split #long-context |
+| PF-20 | Inline D2D cache warm from prefill staging instead of synchronous post-prefill warm | ✅ | LING: cache-warm stall 0.95 s (1 GPU) / 0.52 s (2 GPUs) → 0.000 s | promotes staged experts via D2D (~936 GB/s) while already on GPU | [07](../playbook/07-prefill.md), [04](../playbook/04-live-expert-cache.md) | #offload #prefill #decode |
 
 ## Speculation
 
@@ -141,6 +149,8 @@ A row without a tag of some group was not tested across that group. A missing `#
 | SD-14 | Speculation under batching | ❌ | vLLM n-gram: +40% on 1 stream, -30 to -51% on 4-8 | | [08](../playbook/08-speculative-decoding.md) | #drafter #batch #dense-ok |
 | SD-15 | Verify long copies proposed by earlier text in the request | ◐ | Inkling 2 Mini on 1 card: 488.9 tok/s for a verified 509-token Python edit, 113-114 on fresh prose and code using the same serving profile | measure copy acceptance and ordinary requests separately | [08](../playbook/08-speculative-decoding.md) | #drafter #decode |
 | SD-16 | DSpark with a 4-5 token window on a model with every expert in VRAM | ○ | Inkling 2 Mini acceptance: prose 1.9-2.2, code 2.7-2.9, rewrite 3.6-4.3; window experts 2.4-2.8× one token's; verify via the prompt path 41 ms (loses) | needs a verify step ≤ ~12-13 ms; vLLM reports +14% prose, +67% code on RTX 5090 | [08](../playbook/08-speculative-decoding.md) | #drafter #in-vram #decode |
+| SD-17 | `blk.42` MTP on hybrid KDA+MLA with exact KDA state/conv rollback and CUDA-graphed `W=1..4` verify | ✅ | LING 2 GPUs: up to 143.8 tok/s (+19.5% vs k=0, +40.7% vs v0 synth), 256/256 bit-exact; 1 GPU 106-115 (+33-41%) | replays accepted prefix from untouched state and gates drafts on device at 0.50 | [08](../playbook/08-speculative-decoding.md) | #drafter #offload #1gpu #multi-gpu #decode |
+| SD-18 | High MTP backoff threshold (`be=0.50`) on 1x GPU with CPU lane (`k=2`) | ❌ | LING 1x code: 114.3 → 96.1 tok/s vs `be=0.25` | pauses drafting too early; W=3 verify amortizes CPU-lane reads across threads | [08](../playbook/08-speculative-decoding.md) | #drafter #offload #cpu-lane #1gpu #decode |
 
 ## Output head
 
@@ -188,6 +198,8 @@ A row without a tag of some group was not tested across that group. A missing `#
 | AG-10 | THP only for the duration of the copy | ✅ | DS: no hangs, decode +1.6-3.8% | | [12](../playbook/12-loading-and-big-tables.md) | #load #ram #cpu-lane |
 | AG-11 | Request THP for expert storage with RAM full of file cache | ❌ | HY: loading over 10 minutes | cause not established on HY (on DS and Strata similar stalls were kernel compaction). Check cold start on the specific machine | [12](../playbook/12-loading-and-big-tables.md) | #load #ram |
 | AG-12 | Experts on NVMe as a third tier | ◐ (ext) | 17.3 vs 28.2 tok/s on 1x3090 | costs ~40% of speed. We never needed it | [02](../playbook/02-serving-a-miss.md) | #offload #1gpu #ram |
+| AG-13 | Host-RAM KDA prefix cache (4 slots, ~75-76 MiB/slot) for multi-turn chat | ✅ | LING 2 GPUs HTTP: Turn 1 1.01 s → Turn 2 0.21 s TTFT (4.8x), ~6 ms restore | skips re-running 35 KDA layers over shared history | [11](../playbook/11-sessions-and-prompt-cache.md) | #agent #kv #reread #dense-ok |
+| AG-14 | Lent-VRAM block-streaming Vision tower (`mmproj` mmap'd in RAM, 1 block ~32 MiB in prefill tail) | ✅ | LING 1 GPU: 0.00 GiB permanent VRAM, ~225 ms/img, 262K ctx + image at 22.37/23.56 GiB, cosine 0.999093 | keeps 6,200 expert slots and 262K context on 1 card without slow CPU ViT | [12](../playbook/12-loading-and-big-tables.md) | #1gpu #long-context #ram #dense-ok |
 
 ## How to add a row
 

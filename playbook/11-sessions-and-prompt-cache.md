@@ -1,6 +1,6 @@
 # Sessions, KV and the prompt cache in agent work
 
-Covers DeepSeek V4.1 Flash, MiniMax-M3.1-Flash, Qwen3.8-Flash-Next, Qwen3.5-122B, Hy4 Flash.
+Covers DeepSeek V4.1 Flash, MiniMax-M3.1-Flash, Qwen3.8-Flash-Next, Qwen3.5-122B, Hy4 Flash, Ling-3.2-air.
 
 > **Read when:** the load is a coding agent or a multi-turn chat. **Skip when:** the load is single-shot batch jobs. **Ledger tags:** `#agent` `#kv`.
 
@@ -44,6 +44,12 @@ A trap of hybrid models (DeltaNet/GDN): under sampling the model sometimes emits
 | A short request during a long prefill | A test with priority for the short request cut its TTFT from 8.50 to 1.51 s. For a warmed history of 37,288 tokens: from 21.74 to 1.70 s. The scheduler was tested with the short answer capped at 256 tokens | Also time the delay of the long request, the queue, cancellation, SSE correctness and state preservation. This is a separate scheduling effect |
 
 **Acceptance in the application.** 2 sessions got different tasks with different control strings. Checked: a real tool call, the ID and the return of the result, the final answer after someone else's request, a separate reasoning channel, a repeat with the same seed, and a change of image. The 2 sessions overlapped for 25.385 s, with 1 request waiting in the queue. On 1 card in another series, a return to a history of 94,536 tokens restored 90,112 and took 6.37 s vs 70.43 s for the original request. Both numbers are full request time.
+
+## Host-RAM KDA prefix cache (Ling-3.2-air, 2026-11-24)
+
+On a hybrid linear-attention model (35 KDA layers x 32 heads x 128 x 128 F32 state + conv tails), one full KDA state snapshot is only ~75-76 MiB (`KdaSnapshot`: `conv_state`, `ssm_state`). `maya-ling` keeps a 4-slot host-RAM KDA prefix cache (~300 MiB total) keyed by token prefix.
+
+In a live HTTP end-to-end test on 2x RTX 3090 (32K context, MTP `auto`), Turn 1 (1,490 prompt tokens) took 1.01 s TTFT. Turn 2 (1,517 prompt tokens) restored the matched KDA prefix from RAM in ~6 ms without re-running KDA recurrence, cutting TTFT to 0.21 s (4.8x speedup) with exact recall (`ALPHA-9981`).
 
 ## Transfer checklist
 
