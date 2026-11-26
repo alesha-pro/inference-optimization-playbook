@@ -60,6 +60,8 @@ What it did. Outside thinking, the thinking block stayed bit-identical to the of
 
 Limits. At effort low the model thought 4,683 tokens a problem on average, and 31 of 47 hard answers hit the 10,240-token cap inside thinking, so the hard bucket mostly measures the cap. With 104 problems the inside-thinking arm resolves only about ±6 points.
 
+Verdict, with conditions (◐ in `HD-05`). No gain on single-shot coding (LiveCodeBench, HumanEval+) at 4-bit weights and effort low. That is narrower than the authors' claim, which is about agentic coding. What matched the authors: `omega_max` 0.5, adaptive strength, the guide only outside thinking, control tokens untouched (the settings of omlx PR #5640), and strength 0 bit-exact against the unpatched engine. What did not: the benchmarks (single-shot, not agentic), the weights (IQ4_NL; 4-bit noise may blur the contrast between the first and the third loop pass that the guide amplifies), the effort (low, with a cap that cut off most hard answers mid-thinking), and the sample size. Retest when any of these changes: agentic coding benchmarks, 8-bit or 16-bit weights, default effort or a larger thinking budget, factuality tasks, or enough problems to resolve the inside-thinking arm.
+
 Decision: not served. Revisit with a larger thinking budget on hard problems and more problems for the inside-thinking arm. Raw token streams, grades and the patch are available on request.
 
 ## Transfer checklist
