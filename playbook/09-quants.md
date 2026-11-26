@@ -88,6 +88,32 @@ On 280B MoE models quantized to 2.3 bpw (`IQ2_XS` / `IQ2_XXS`) across 4x RTX 309
 
 On Ling-3.2-air (only 7 gated MLA layers vs 35 KDA linear-attention layers), switching 32K context from FP16 KV to INT8 KV saves only `102 MiB` (40 of 20,480 expert slots). Alternated quiet 1x RTX 3090 `--bench` runs measured zero speed gain: `69.1 / 69.2 tok/s` (FP16) vs `69.1 / 68.0 tok/s` (INT8), and `56.14` vs `56.18 tok/s` at 30K-filled context. Meanwhile INT8 KV flipped 3 of 4 greedy exactness hashes (`KL 0.0001-0.016`). Keep FP16 KV as the default on sparse-MLA hybrids and leave INT8 KV as an opt-in knob for maximum context length.
 
+## A 2-bit K-quant to fit a 35B-A3B MoE on 1 old 16 GB card (Ornith-1.5-35B-A3B, Radeon Instinct MI25, 2026-11-26)
+
+External result (ext) from a homelab, not this rig.
+
+Load and criterion. Single-stream and batched decode for a household chat model. The question: can 1 MI25 (Vega 10, 16 GB HBM2, BIOS power cap 110 W, about USD 50 used) carry the model alone, so the second card is free?
+
+Control. Ornith-1.5-35B-A3B Q4_K_M (21.7 GB) does not fit on the MI25 alone. It ran split by layers (`-ts 6,16`) over a GTX 1080 Ti (CUDA) and the MI25 (Vulkan RADV) in 1 llama.cpp `7790a92` process. Candidate: `bartowski/Ornith-1.5-35B-A3B-GGUF` Q2_K_L (13.6 GB, embedding and output at Q8_0) on the MI25 alone, same build, Vulkan RADV only. Q2_K_L is the largest K-quant that leaves 1 GiB free on the card: Q3_K_S at 15.98 GB does not, and an earlier run measured IQ quants slower on Vega (IQ4_XS decode below Q4_K_M). A thermal guard paused the run at HBM 93 C or junction 100 C.
+
+| llama-bench, depth 0 | Q4_K_M, 1080 Ti + MI25 | Q2_K_L, MI25 alone |
+|---|---:|---:|
+| pp512 | 532 | 461.3 ± 3.1 |
+| tg128 | 59.5 | 58.27 ± 0.15 |
+
+| `llama-batched-bench`, 2K prompts, 128 out, MI25 alone | 1 sequence | 4 | 8 |
+|---|---:|---:|---:|
+| Prefill, tok/s | 447.5 | 449.5 | 441.0 |
+| Decode, total tok/s | 55.28 | 82.09 | 82.02 |
+
+Through the server with about 2,000-token unique prompts and 256 tokens out, the wall rate was 27.1 / 30.8 / 27.4 tok/s at 1 / 4 / 8 streams, and 34.7 / 37.3 / 35.7 with a shared 1,900-token prefix. Prefill sets every multi-stream number. VRAM stayed at 12.2-13.5 GB with no spill to host memory. The guard paused the card for 0-16% of the time at 4-8 streams and never at 1 stream.
+
+Quality. A blind 60-item chat eval with thinking on, judged by an LLM in 1 pass: 8.72 for Q2_K_L against 9.15 for Q4_K_M served on another card. These do not compare tightly. Reasoning and honesty items held, most of the loss sits in writing.
+
+Why decode did not move. In both layouts the MI25 at its 110 W cap sets single-stream decode. Forcing its power policy changed nothing in the earlier split runs. The second card bought prefill (CUDA on the 1080 Ti) and depth, not short decode. Decode at 8 sequences equals decode at 4. The run did not split whether the power cap or the expert matvec at 8 tokens a step binds there.
+
+Decision: accepted as a 1-card host for the model. Revisit: the plateau from 4 to 8 sequences on a newer llama.cpp, decode at depth (not measured on Q2_K_L), and a mixed 3-bit file of 14 GB or less for the writing loss. Transfer: when an old card's power cap sets decode, a second card helps prefill and depth only. Measure the 1-card fit at the largest quant that leaves 1 GiB free before splitting.
+
 ## Transfer checklist
 
 1. Count experts in VRAM for each candidate quant at your context, KV precision and drafter. Use [01](01-cost-model.md) to turn that into misses.

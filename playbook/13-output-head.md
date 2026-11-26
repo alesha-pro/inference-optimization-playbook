@@ -32,6 +32,36 @@ On a new model, first look at the distribution of the number of candidates after
 
 Copying 200,058 logits to the host and sorting them cost ~0.8 ms a token. A histogram of 1,024 bins over the softcapped range finds the bin from which the top 1,000 start, and only those (1,000-2,400) go to the host: sampling 100 → 110 tok/s, the same tokens for the same seed.
 
+## A contrastive guide from an earlier loop pass (Inkling 2 Mini, LoopCD-Logits, 2026-11-26)
+
+External result (ext) from a homelab with 1 RTX 3090 Ti, not this rig.
+
+LoopCD-Logits (arXiv 2610.02185) is meant for looped models. Inkling 2 Mini runs its middle layers 3 times a token. The guide runs the last 6 layers a second time on the state after the first loop pass, sends the final row and this early row through one 2-row head, and moves the final logits away from the early ones: `z' = z + w (z - z_ref)`, `w = omega_max x (1 - (p1 - p2))` from the top 2 probabilities of the final row. Settings: `omega_max` 0.5, control tokens keep their final logits, and the text tokens keep the total probability of the final distribution. 2 arms: the guide only outside thinking blocks, and the guide inside thinking too.
+
+Control. Inkling 2 Mini IQ4_NL (17.6 GB), llama.cpp `e58e0c7f7` with a patch, CUDA, every layer on the card, q8_0 K/V, `-fa on`. At strength 0 the patched build matched the unpatched one on token IDs and top-5 logprobs, 5 prompts x 256 tokens. The arms of 1 problem ran as 1 request with `n_cmpl 3`, so they share the prompt state and decode in the same batches (see the traps in [14](14-benchmarking-and-traps.md)).
+
+| Benchmark | Off | Guide outside thinking | Guide inside thinking too |
+|---|---:|---:|---:|
+| HumanEval+ base / plus, 164 tasks | 98.2% / 92.1% | same, 0 discordant pairs | not run |
+| LiveCodeBench v5 + v6, the first 104 of 342 problems in a seeded order, effort low, greedy | 61.5% | 60.6%, -1.0 points [-2.9, 0.0], 1 discordant pair | 60.6%, -1.0 [-7.7, +4.8], 11 discordant (6 lost, 5 won) |
+
+Intervals are 95% paired bootstrap. All 36 discordant answers were graded a second time with the same verdicts.
+
+| Cost | Off | Guide on |
+|---|---:|---:|
+| tg128 | 62.36 tok/s | 55.79 (-10.5%) |
+| pp512 | 1,639.2 tok/s | 1,476.7 (-9.9%) |
+| Long answers at the default thinking effort, up to 8,192 tokens, 3 problems x 2 builds interleaved | 58.48 tok/s | 52.47 (-10.3%) |
+| K/V buffers | | +12.5% (6 more layer visits, 48 → 54) |
+
+The head is nearly free with 2 rows. The extra layer visits are the cost.
+
+What it did. Outside thinking, the thinking block stayed bit-identical to the off arm on all 104 problems. The guide changed the final answer on 36 and the outcome of 1, a loss. On HumanEval+ it changed the text of 95 answers and the outcome of none: imports moved, annotations added, loops reordered. Inside thinking, the guided answer left the off arm at token 2-73 (median 7). Its outcomes moved 6 down and 5 up.
+
+Limits. At effort low the model thought 4,683 tokens a problem on average, and 31 of 47 hard answers hit the 10,240-token cap inside thinking, so the hard bucket mostly measures the cap. With 104 problems the inside-thinking arm resolves only about ±6 points.
+
+Decision: not served. Revisit with a larger thinking budget on hard problems and more problems for the inside-thinking arm. Raw token streams, grades and the patch are available on request.
+
 ## Transfer checklist
 
 1. Profile the decode step. If the head is a few percent, skip this chapter.
@@ -39,3 +69,4 @@ Copying 200,058 logits to the host and sorting them cost ~0.8 ms a token. A hist
 3. For greedy: recheck survivors with the original weights, handle ties by token ID.
 4. For sampling: keep the original distribution unless you have a verified selection algorithm.
 5. Test over at least 2 turns with a snapshot in between, in several languages.
+6. For a logit guide (contrastive decoding and the like), measure the gain on a benchmark with headroom and pair the arms on the same prompts. A benchmark at 92-98% has nothing to win.
