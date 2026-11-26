@@ -135,6 +135,26 @@ On 4x RTX 3090 over PCIe 3.0 without NVLink (280B MoE at 2.3 bpw), `--tp 1` laye
 
 On the compute side of 2-bit/3-bit (`IQ2`/`IQ3`) expert prefill on Ampere (`sm_80+`), widening the tile (`kTK=32 -> 64`) so all 256 threads in the block cooperatively dequantize into shared memory via `uint4` stores (`F16_SMEM`) before Tensor Core MMA cuts expert prefill latency by ~2.4-3.3x vs leaving half the block idle ([09](09-quants.md), `QP-18`).
 
+## Long reads in a batched agent pool: stop the pipeline or crawl inside it (2x Arc Pro B70, 2026-11-26, `PF-23`)
+
+External result (ext) from a homelab with 2 Intel Arc Pro B70s, not this rig.
+
+Setup. QW Coder (expert-pruned) IQ1_M on 2 B70s, layers split 25 + 23, every expert in VRAM, K/V q4_0 at 50,000 tokens a slot. 64 agents share batch windows of up to 32 rows in 2 groups, so one stage decodes one group while the other stage works on the other. The workload is a scripted household-assistant task set (short facts, questions, and file reads from a seeded inbox), not coding. A prompt suffix up to the window cap is read as prompt rows inside the windows. A longer one is read on a serial path that holds both stages.
+
+What stops the pool. With host timestamps for every window, every request decision and every host span on one steady clock, the gaps where neither stage had a window total 267.2 s of 2,126.5 s (12.6%). 52 gaps are 250 ms or longer (179.9 s), and 51 of them are covered by serial reads: one suffix of ~4,100 tokens each, 4.6-5.5 s. All serial reads together take 150.4 s, so nearly every second of serial read is a second both cards idle. They are not the agent's previous answer being read again: where a read joins to its turn, the cache already holds the prior prompt and answer, and 4,099 new prompt tokens follow (most likely a tool result clipped near 4k). The median turn adds 35 uncached tokens.
+
+| 35 min, 64 agents, same build and workload | Window cap 512 (serial reads) | Window cap 4,608 (reads inside the windows) |
+|---|---:|---:|
+| Server decode | 302.8 tok/s | 265.5 tok/s (-12.3%) |
+| Serial reads over 512 tokens | 50 | 1 |
+| Idle gaps, total / 250 ms or longer | 267.2 s / 52 gaps, 179.9 s | 111.7 s / 3 gaps, 29.4 s |
+| Decode / prompt rows a stage-0 window | 18.1 / 12.2 | 15.0 / 16.0 |
+| TTFT p50 / p99 | 4.1 / 57.8 s | 3.8 / 370.4 s |
+
+The forecast for the cap was +5% (319 tok/s), from the idle time it would remove. It removed the idle and lost anyway. The serial path reads a 4k suffix in large batches in ~5 s. Inside the windows it gets ~16 prompt rows a window, and its agent is not decode-ready for hundreds of windows. The cost moved from a stop everyone shares to a slot that sits out. Middle caps (1,024 and 2,048) reach only 12-20 s of the 150 s, so they are forecast flat.
+
+The lesson for a batched pipeline: count what the long read does to decode-ready slots, not just the idle gaps it leaves. A read that stops the pipeline and a read that shares its windows can cost the same or worse. What is left is to move the read off the decode path: a separate engine or card reads the suffix and hands over the state while both stages keep decoding (forecast +4%, not yet run).
+
 ## Transfer checklist
 
 1. Count bytes moved CPU→GPU per fresh token. If the same expert weights cross PCIe again and again, that is the first target.

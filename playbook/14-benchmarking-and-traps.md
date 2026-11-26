@@ -55,6 +55,15 @@ Covers all models. This chapter is about getting numbers you can trust. What cou
 - A CLI run of the engine without a context size did not keep every expert in VRAM and took the general path: checks of the resident path without it checked nothing.
 - `nsys` does not see kernels inside a CUDA graph (profile with the graph off), and `nsys stats` does not overwrite an older CSV.
 
+## Pairing arms inside one llama.cpp server (Inkling 2 Mini, 2026-11-26)
+
+External result (ext), from the LoopCD test in [13](13-output-head.md): 3 arms of each problem decoded together on 1 RTX 3090 Ti with greedy sampling.
+
+- 3 separate requests for 3 arms did not pair. With every arm off, a twin control diverged on 5 of 5 problems at tokens 10-83: the prompts reached the server in different iterations, were split into chunks differently, and greedy decoding amplified the bit-level difference. 1 request with `n_cmpl 3` fixed it: the prompt is read once, its state is copied to 2 child slots, and the 3 decode in lockstep.
+- When the children sat on slots right after their parent, every batch listed its sequences out of order and llama.cpp reused no graph: 89 tok/s at 15 slots. Parents on the first slots and children after them restored graph reuse.
+- With graph reuse on, a parent drifted from its children on 2 and 4 of 5 problems, with the guide at 0 on every slot (a model with sliding-window attention and recurrent memory). `LLAMA_GRAPH_REUSE_DISABLE=1` kept all 5 bit-identical at the same speed. The cause was not found.
+- Run a twin with every arm off before the real run, and compare the streams token by token.
+
 ## What to record with every number
 
 - model, quant, engine and revision, full launch arguments;

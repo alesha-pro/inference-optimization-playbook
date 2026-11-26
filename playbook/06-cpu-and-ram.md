@@ -59,6 +59,30 @@ Inkling 2 Mini has 24 physical MoE layers. The middle 12 run 3 times per token. 
 
 With 15,995 actual input tokens and a synthetic KV tail, GPU staging alone gave 32.35, 16.94 and 10.55 tok/s at 524,288, 786,432 and 1,048,064 positions. The selected host layers gave 41.63, 26.14 and 18.13. Sending all layers to the CPU at the last depth gave 13.38. These controlled placement tests used 8-channel DDR4-2133, PCIe 3.0 x16 and a 300 W GPU. The production service keeps this host path disabled below 524,288 positions.
 
+## A hand-written Q8_0 matvec on 1 pinned Zen 1 die (llm.asm, 2026-11-26)
+
+External result (ext) from a homelab, not this rig.
+
+Load and criterion. CPU-only decode and prompt reading on a small dense model, Qwen3-0.6B Q8_0. Both engines use Qwen's release: llama.cpp reads Qwen's Q8_0 GGUF, llm.asm reads its own Q8_0 export of the same safetensors.
+
+Control. llama.cpp master `074f1f3`, `llama-bench -ngl 0` (tg64 at depth 0, pp34, pp512). llm.asm `48feccb`, `make inference FAST_Q8=1`, 64 tokens after a 34-token chat prompt. AMD EPYC 7601 (Zen 1, AVX2, no AVX-512, 8 NUMA nodes). Both engines on 1 die: `taskset` to 1 CPU per physical core on node 0, 2 DDR4 channels, both model files rewritten from node 0 so their page cache is local. 3 runs each, interleaved, spread under 0.5%.
+
+| Threads | llm.asm decode | llama.cpp tg64 | Ratio | llm.asm pp512 | llama.cpp pp512 | Ratio |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 18.58 | 16.62 | 1.12x | 22.38 | 27.99 | 0.80x |
+| 4 | 48.38 | 42.30 | 1.14x | 56.98 | 90.96 | 0.63x |
+| 8 | 48.76 | 46.78 | 1.04x | 58.46 | 175.37 | 0.33x |
+
+The llm.asm README reports 1.24x / 1.36x / 1.28x decode on an EPYC 7642 (ext).
+
+Why. At 8 threads llm.asm moves about 30.9 GB/s of weights and llama.cpp about 29.6 GB/s (calc: bytes a token x tok/s), about what 2 DDR4 channels give, so the kernel stops mattering there. The integer core is the same in both engines (`vpsignb`, `vpmaddubsw`, `vpmaddwd`). The differences: llama.cpp's x86 decode dot `ggml_vec_dot_q8_0_q8_0` runs 1 block an iteration into 1 accumulator with 2 scalar fp16 scale converts a block, while llm.asm runs 4 blocks into 4 independent accumulators, converts 4 scales in 1 `vcvtph2ps`, keeps the int8 weights of a row contiguous and 64-byte aligned with the scales after them, and runs Q+K+V and gate+up as 1 fused matmul behind 1 barrier. This run did not split the 4-14% between the kernel and the fusion. Prompts go the other way: llm.asm runs 1 GEMV pass a prompt token and saturates at about 58 tok/s from 4 threads, while llama.cpp runs a tiled GEMM that reuses each weight block across tokens.
+
+The trap. The first pinned run, with the model files' pages left where the download wrote them, gave llm.asm 8.93 / 11.29 / 11.43 tok/s and llama.cpp 16.81 / 41.94 / 45.57. The same binaries gave llm.asm 48.76 once the file was rewritten from node 0. That run measured where the pages sat on an 8-node box, not the kernel. Pinning threads is not enough when the engine maps a file: read or rewrite it from the pinned node first and check `numa_maps`.
+
+Not settled. On a Ryzen 9 9950X3D (AVX-512 VNNI) the runs had no exclusive cores and spread 10-28%, so they do not separate the engines. There llama.cpp's native build compiles the same dot to `vpdpbusd`, and llm.asm has no VNNI path.
+
+Decision: microtest only. Transfer: the 4-accumulator unroll and the vector scale handling fit into `ggml_vec_dot_q8_0_q8_0` with no format change. The split-row layout is a format change, an x86 branch of the Q8_0 CPU repack buffer. Measure on 1 die with local pages and stop at the bandwidth wall.
+
 ## Transfer checklist
 
 1. Run STREAM Triad by thread count before anything else. Find the plateau.

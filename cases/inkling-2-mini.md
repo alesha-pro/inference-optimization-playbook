@@ -27,3 +27,7 @@ The scalar-expert serving profile retained all 200,058 logits byte for byte acro
 | DSpark windows 4-8 | acceptance and window cost in [Speculation](../playbook/08-speculative-decoding.md); not shipped yet |
 
 Final, one RTX 3090, FP8 KV, 344K window: decode 128.7 / 124.2 / 105.6 / 90.6 / 62.3 tok/s after 47 / 4K / 64K / 128K / 340K tokens, prefill 2,742 / 2,361 / 2,079 / 1,473. Engine: github.com/alesha-pro/maya-inkling-mini.
+
+## LoopCD-Logits on 1 RTX 3090 Ti (ext, 2026-11-26)
+
+A homelab tested LoopCD-Logits (`omega_max` 0.5, adaptive strength) on Inkling 2 Mini IQ4_NL in a patched llama.cpp. Outside thinking blocks it changed the text of many answers and almost no outcomes: HumanEval+ 0 of 164, LiveCodeBench -1.0 points [-2.9, 0.0] on 104 problems. Inside thinking too: -1.0 [-7.7, +4.8]. It cost 10.3-10.5% of decode and 12.5% more K/V. The verdict holds only for single-shot coding at 4-bit weights and effort low; agentic coding, 8-bit or 16-bit weights, default effort and factuality are untested (`HD-05`, ◐). [Output head](../playbook/13-output-head.md), [pairing arms in 1 server](../playbook/14-benchmarking-and-traps.md).

@@ -1,6 +1,6 @@
 # Inference optimization playbook
 
-My field notebook for tuning LLM inference on consumer GPUs. The ledger covers 138 tested hypotheses across 7 model cases, with the verdict, measurements and test conditions for each. I publish it as a read-only reference for people tuning local inference and as a skill for coding agents.
+My field notebook for tuning LLM inference on consumer GPUs. The ledger covers 142 tested hypotheses across 7 model cases, with the verdict, measurements and test conditions for each. I publish it as a read-only reference for people tuning local inference and as a skill for coding agents.
 
 My rig measurements use 1-4 RTX 3090 cards (24 GB each). The cases cover expert offload to RAM and models or quants that fit in VRAM, including Inkling 2 Mini on 1 card and Ling-3.2-air R3 on 3-4 cards. Engines include Strata, Maya forks, an exllamav3 fork, llama.cpp and vLLM. [Rig details and model cases](cases/README.md)
 
