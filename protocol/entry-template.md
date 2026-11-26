@@ -1,8 +1,8 @@
-# Template for a new entry
+# Rig experiment log
 
-Copy the block below for the next model or for a new result on an old one. Date every entry. If a later check changed the decision, add it next to the original one and link both ways. The reader then keeps the reason why a once reasonable release had to be rolled back.
+This is the owner's format for recording experiments on the rig. Each log includes a date, the control, the result and the decision. When a later test changes a decision, the notebook links the 2 dated records so the reason stays visible.
 
-Where it goes: [AGENTS.md](../AGENTS.md) has the rules. In short: the story goes into the chapter of its mechanism, 1 line goes into the [ledger](../ledger/hypotheses.md), and the model's case file gets a pointer.
+The owner and the owner's agents use these records to maintain the chapters, ledger and model case files. [Internal notebook maintenance](../AGENTS.md)
 
 ```markdown
 ### [Model], [observed problem and mechanism], [date]
@@ -31,9 +31,9 @@ Mark every number that is not a plain run on the rig:
 | (ext) | someone else's number |
 | (1 run) | not repeated |
 
-## Example of a filled entry (short, illustrative)
+## Example from the Hy4 Flash log
 
-Rebuilt from [chapter 13](../playbook/13-output-head.md) to show the shape. The chapter is the record.
+This abbreviated example follows the drafter head experiment in the output head chapter. [Full experiment](../playbook/13-output-head.md)
 
 ```markdown
 ### Hy4 Flash, Q4 in the drafter head shifted the snapshot boundary, 2026-11-19

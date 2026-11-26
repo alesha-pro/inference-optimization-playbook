@@ -10,7 +10,7 @@ For every trick the chapters say what the problem was, what changed, what the co
 2. **Locate.** Answer the questions below, or enter by symptom. Each answer points to 1-2 chapters.
 3. **Filter.** Grep the [ledger](../ledger/hypotheses.md) by your tags to see what was already tried under your conditions, and open the closest [case](../cases/README.md).
 4. **Test.** Pick the cheapest test that reproduces the bottleneck and follow the [experiment rules](../protocol/experiment-rules.md).
-5. **Record.** Write the result down with the [entry template](../protocol/entry-template.md), failures included.
+5. **Record.** Write down the control, the result and the decision, including failed tests.
 
 There is no fixed order of chapters. 2 different models will take 2 different routes.
 

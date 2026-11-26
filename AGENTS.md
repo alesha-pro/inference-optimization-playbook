@@ -1,6 +1,6 @@
-# Rules for editing this repo
+# Internal notebook maintenance
 
-For agents and people who add results. Readers should start with [README.md](README.md) or [SKILL.md](SKILL.md).
+Only the owner and the owner's agents update this notebook. This file specifies how they log experiments and maintain the published reference. Readers and agents using the reference can start with [README.md](README.md) or [SKILL.md](SKILL.md).
 
 The repo is a map, and it will grow: more models, more rows. The rules below keep 1 thing true as it grows. An agent with a new case must be able to find the results obtained under its conditions without reading everything.
 
@@ -13,21 +13,21 @@ The repo is a map, and it will grow: more models, more rows. The rules below kee
 | A digest per model: shape, final numbers, what worked and what did not, pointers to chapters | `cases/<model>.md` |
 | Hardware, model shapes, the traits table | `cases/README.md` |
 | The map: entry by regime and by symptom | `playbook/00-start-here.md` |
-| Situation card, experiment rules, checklist, entry template | `protocol/` |
+| Situation card, experiment rules, checklist, rig experiment log format | `protocol/` |
 | Small scripts that help to orient | `tools/` |
 | Terms | `glossary.md` |
 | What changed and when | `CHANGELOG.md` |
 
 Chapters are organized by mechanism, not by model. A result about live caches on a new model goes into chapter 04, not into a new file.
 
-## Adding a result
+## Recording a rig experiment
 
-1. Fill the [entry template](protocol/entry-template.md). An entry without a control, a before → after and a decision is not ready.
+1. Use the [rig experiment log](protocol/entry-template.md) to record the control, the before and after measurements, and the decision.
 2. Put the story into the right chapter, in the section of that mechanism. Label it with the model name and date. Add a row to an existing table when the format fits.
 3. Add 1 row to the ledger with the next free ID in its area (PL, MS, MG, PF, SD, HD, QP, AG), tags from the vocabulary, and a link to the chapter.
 4. Update the model's case file and its column in the traits table of `cases/README.md`.
 5. If the result changes the map (`playbook/00-start-here.md`: a question, a symptom row, a finding), the "Read when" line of a chapter, or the routing table of `SKILL.md`, update them.
-6. If the count of hypotheses changed, update it in `README.md` and in the `description` of `SKILL.md`.
+6. If the count of hypotheses or model cases changes, update the counts in `README.md` and `SKILL.md`.
 7. Add a line to `CHANGELOG.md`.
 
 ## Adding a model

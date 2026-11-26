@@ -59,4 +59,4 @@ If the miss term is small, stop working on placement and go to the constant part
 
 ## Rules
 
-The demo data is synthetic. Do not quote it as a result. See [AGENTS.md](../AGENTS.md) for how tools are added.
+The demos use synthetic data. Quote measurements from your engine when reporting performance.

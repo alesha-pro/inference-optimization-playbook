@@ -25,7 +25,7 @@ The playbook is a map, so the order of experiments is yours to choose. These rul
 
 12. **Accept only above the threshold and with nothing else broken.** Report the mean, the worst block, the worst full answer and the worst rolling window. A candidate that raised one minimum and lowered the mean was rejected here.
 13. **Run the quality gate you stated,** and always a second turn with a snapshot in between ([15](../playbook/15-quality-and-release-gates.md)).
-14. **Write it down, the failures too.** A dated entry by the [template](entry-template.md), 1 row in the [ledger](../ledger/hypotheses.md) with tags, a pointer in the model's case file.
+14. **Record the decision.** Log the date, control, results and reason, including failed tests. The owner's rig log shows what to capture. [Rig experiment log](entry-template.md)
 15. **Stop on a plateau.** After 3 changes in a row inside the noise, stop and write a status: best numbers against the baseline and the ceiling, what limits further gains with evidence, and the remaining ideas ranked by cost. Then profile before the next attempt.
 
 ## On a shared machine

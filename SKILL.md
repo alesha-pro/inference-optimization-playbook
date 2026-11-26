@@ -1,13 +1,13 @@
 ---
 name: inference-optimization-playbook
-description: Use when the task is to make local LLM inference faster or to explain why it is slow, especially large MoE models that do not fit in VRAM: expert offload to RAM, hot expert placement, live expert cache, CPU lane vs PCIe copy, multi-GPU (layer split, tensor parallel, expert parallel, all-reduce), prefill and re-read speed, speculative decoding and drafters, quant choice for speed, expert pruning, KV, prompt cache and session snapshots for agents, big n-gram tables on NVMe, output head cost, benchmark methodology and quality gates for engine changes. Also for porting a new model into an inference engine or planning its bring-up on given hardware. A map of 138 tested hypotheses with verdicts and numbers from DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash, Inkling 2 Mini and Ling-3.2-air on 1-4 RTX 3090. Not for training, prompt engineering or cloud API cost questions.
+description: Use when the task is to make local LLM inference faster or to explain why it is slow, especially large MoE models that do not fit in VRAM: expert offload to RAM, hot expert placement, live expert cache, CPU lane vs PCIe copy, multi-GPU (layer split, tensor parallel, expert parallel, all-reduce), prefill and re-read speed, speculative decoding and drafters, quant choice for speed, expert pruning, KV, prompt cache and session snapshots for agents, big n-gram tables on NVMe, output head cost, benchmark methodology and quality gates for engine changes. Also for porting a new model into an inference engine or planning its bring-up on given hardware. A read-only reference with 138 tested hypotheses across 7 model cases on 1-4 RTX 3090 cards. The cases cover DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash, Inkling 2 Mini and Ling-3.2-air. Not for training, prompt engineering or cloud API cost questions.
 ---
 
 # Inference optimization playbook
 
 A map of real experiments on speeding up LLM inference on consumer GPUs: what was tried, on which model, what the numbers were, what the decision was and why. All paths below are relative to the directory this file is in.
 
-The 6 offloaded models in it behaved differently. A static hot set worked on 2 and was close to random on 2 others. The cheapest way to serve a miss flipped between models on the same hardware. So there is no fixed sequence to run. Find where the user's case is on the map, then use only the results that were obtained under the same conditions.
+A static hot set worked on DeepSeek and Qwen and gave little gain on GLM and MiniMax. The cheapest way to serve a miss also flipped between models on the same hardware. Find the closest case to the user's setup, then check the conditions on each result before applying it.
 
 ## The route
 
@@ -15,9 +15,9 @@ The 6 offloaded models in it behaved differently. A static hot set worked on 2 a
 2. **Locate.** Open `playbook/00-start-here.md`. Answer its 7 questions by regime, or enter by symptom. Each answer points to 1-2 chapters. Read the first lines of a chapter: every chapter says when to read it and when to skip it.
 3. **Filter.** Grep `ledger/hypotheses.md` by your tags to see what was already tried under your conditions, with the verdict, the reason and a "revisit when". Then open the closest case from the traits table in `cases/README.md`.
 4. **Test.** Pick the cheapest test that reproduces the bottleneck. Follow `protocol/experiment-rules.md`: ceiling first, one change, controls on both sides, thresholds written in advance, a stop rule.
-5. **Record.** Write the result with `protocol/entry-template.md`, failures included. Inside this repo follow `AGENTS.md`.
+5. **Record.** Report the control, the result and the decision to the user. Include failed tests and the conditions that would justify repeating them.
 
-Do not load every chapter. They are 3-13 KB each and most of them will not apply to one case.
+Read the chapters that match the bottleneck.
 
 ```bash
 grep "#weak-skew" ledger/hypotheses.md              # results on models with weak routing skew
@@ -61,7 +61,7 @@ Both are standard-library Python, no install.
 
 ## Rules for using these numbers
 
-- **Transfer mechanisms, not numbers.** Everything was taken on 4x RTX 3090 (PCIe 3.0, no NVLink), an EPYC 7642 and DDR4 whose channel count changed during the work. Before you quote a number to the user, say which model, engine and hardware it is from. Never present it as what they will get.
+- **Match the hardware.** Rig measurements use 1-4 RTX 3090 cards (PCIe 3.0, no NVLink), an EPYC 7642 and DDR4 whose channel count changed during the work. When quoting a number, name the model, engine and hardware used to measure it.
 - **Match the conditions before you trust a verdict.** Compare the tags of a ledger row with your tag line. A row without `#weak-skew` was not tested on weak skew.
 - **A ❌ is local.** It means "did not pay on that model, engine and hardware". Read the "why" and "revisit when" columns. Several ideas flipped between models: the CPU lane lost to PCIe on GLM and won on 3 other models, TP under offload was dropped on DeepSeek and worked on Hy4 Flash with a CPU lane serving the missing experts.
 - **Respect the evidence labels.** No label means a real run. (sim) is a simulator on real traces, (calc) a calculation, (micro) a microbenchmark of one operation, (ext) someone else's number, (1 run) not repeated. Do not turn a (calc) into a promise.
@@ -73,10 +73,8 @@ Both are standard-library Python, no install.
 
 Decode of an offloaded MoE costs `constant + misses per token × cost of one miss`. So there are 4 levers: fewer misses at the same VRAM (profile, live cache), more experts in VRAM (fewer bits, smaller buffers), a cheaper miss (CPU lane, faster RAM, better CPU code), and a smaller constant (kernels, exchange, drafter). Fit the model first and work on the larger term. Prefill is a different regime: almost every expert is needed per chunk, so the lever is bytes moved over PCIe per token. Agent workloads are a third regime: most time is generation and short re-reads, so caches and snapshots matter more than cold prefill speed.
 
-## What this playbook does not have
+## Measurement scope
 
-- A benchmark harness. The tools here help to orient, they do not launch or time a server.
-- Data on concurrent load. Almost every number here is for 1 active request.
-- Hardware other than the rig in `cases/README.md`.
+Most measurements cover 1 active request on the rig in `cases/README.md`. For throughput on the user's setup, run the engine's benchmark or replay their sessions.
 
-When the map has no answer, say so. Then use the closest mechanism to design the cheapest test that would answer it, run it if you can, and record the result. A new ledger row with a clear verdict and tags is the most useful contribution.
+When the map has no answer, say so. Use the closest mechanism to design the cheapest test that would answer the question, then run it if you can and report the result.
