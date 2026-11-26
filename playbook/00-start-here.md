@@ -47,7 +47,7 @@ Time 1 expert on the CPU under load, 1 expert copy over the bus and 1 full decod
 
 ### How many cards, and in which mode?
 
-Count the cards that improve decode on your load, then compare layer split with tensor parallel ([05](05-multi-gpu.md)). On Qwen the third and fourth card added only prefill.
+Count the cards that improve decode on your load, then compare layer split with tensor parallel ([05](05-multi-gpu.md)). On Qwen the third and fourth card added only prefill. Under PCIe 3.0 without NVLink on a 280B 2.3 bpw MoE, TP=4 still won decode (1.35x) while `--tp 1` layer-pipeline won long prefill (2.0-2.5x).
 
 ### What does the user feel as slow?
 
@@ -59,7 +59,7 @@ Count the cards that improve decode on your load, then compare layer split with 
 
 ### Is system RAM the limit?
 
-A big side table can leave pinned RAM for NVMe ([12](12-loading-and-big-tables.md)). Fewer bits for the experts come next ([09](09-quants.md)). Pruning is the last resort and needs a check on every domain ([10](10-pruning-and-merging.md)).
+A big side table can leave pinned RAM for NVMe ([12](12-loading-and-big-tables.md)). Under hard `cgroup v2` memory caps, buffered page-cache NVMe expert streaming beats `O_DIRECT` by 45-92% ([12](12-loading-and-big-tables.md)). Fewer bits for the experts come next ([09](09-quants.md)). Pruning is the last resort and needs a check on every domain ([10](10-pruning-and-merging.md)).
 
 ### On any route
 

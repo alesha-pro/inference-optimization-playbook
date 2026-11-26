@@ -1,6 +1,6 @@
 # Inference optimization playbook
 
-A map of 127 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
+A map of 138 tested ideas for making huge LLMs fast on consumer GPUs. Each one has a verdict (worked, failed, or works only under conditions), the numbers, the reason, and the conditions it was tested under.
 
 It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, MiniMax-M3.1-Flash, Tencent Hy4 Flash and Ling-3.2-air on 4x RTX 3090 with experts offloaded to RAM, and Inkling 2 Mini on a single RTX 3090 with every expert in VRAM. The big models do not fit in 96 GB of VRAM at the quants we wanted. Engines: Strata, Maya forks, an exllamav3 fork, llama.cpp, vLLM, most of them patched by hand.
 
@@ -15,7 +15,7 @@ It comes from running DeepSeek V4.1 Flash, Qwen3.8-Flash-Next, GLM-5.3-Flash, Mi
 | MiniMax-M3.1-Flash | attention K/V gathered into VRAM once per chunk | prefill 64K ×3.3 |
 | GLM-5.3-Flash at 2.05 bpw, 4 cards | tensor parallel instead of layer split | 48.3 → 66-68 tok/s |
 | Inkling 2 Mini, 1 card | every expert in VRAM, a token as 1 CUDA graph, NVFP4 experts and attention on the tensor cores | decode 57 (llama.cpp) → 128.7 tok/s, 344K context |
-| Ling-3.2-air, 2 cards | tiled Flash-MLA, macro-prefill, TILE=32 MLA decode, `blk.42` MTP with exact KDA rollback | prefill 32K: 248 → 3,119 tok/s; 260K decode +64.4%; MTP up to 143.8 tok/s |
+| Ling-3.2-air, 2 and 4 cards | tiled Flash-MLA, macro-prefill, 4-GPU stage pipe buffer, TILE=32 MLA decode, `blk.42` MTP | 32K prefill: 248 → 3,119 (2x), 2,230 → 5,439 tok/s (4x); 260K decode +64.4%; MTP up to 143.8 tok/s |
 
 And what did not work, which is most of the value:
 

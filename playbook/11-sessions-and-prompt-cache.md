@@ -51,6 +51,8 @@ On a hybrid linear-attention model (35 KDA layers x 32 heads x 128 x 128 F32 sta
 
 In a live HTTP end-to-end test on 2x RTX 3090 (32K context, MTP `auto`), Turn 1 (1,490 prompt tokens) took 1.01 s TTFT. Turn 2 (1,517 prompt tokens) restored the matched KDA prefix from RAM in ~6 ms without re-running KDA recurrence, cutting TTFT to 0.21 s (4.8x speedup) with exact recall (`ALPHA-9981`).
 
+For cross-restart persistence, `maya-ling` (`0b14d202`, 2026-11-25) adds bounded, opt-in `.lingrp` restore points keyed by model identity and topology so stale snapshots from another quant or GPU count cannot silently load into a mismatched session.
+
 ## Transfer checklist
 
 1. Log a real agent session first: generation vs reading time, new tokens per turn, how many turns continue from `prompt + answer`, how many read from scratch and why.

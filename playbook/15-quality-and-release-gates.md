@@ -1,6 +1,6 @@
 # What counts as preserved quality, and when to ship
 
-Covers Hy4 Flash for the 3-level scheme and the release example. The rulers at the end come from all models.
+Covers Hy4 Flash for the 3-level scheme and the release example, plus Ling-3.2-air and multi-GPU parity gates. The rulers at the end come from all models.
 
 > **Read when:** before any change ships, and when 2 builds give different answers. **Ledger tags:** `#quality-risk`.
 
@@ -31,6 +31,10 @@ Raising the chunk from 2,048 to 3,072 without a new numeric check: in an early s
 - Add a battery of answers with a positive and a negative control, and read the output yourself. A quant that passed on logits produced garbage in Russian ([09](09-quants.md)).
 - Freeze the live expert cache for any quality check. Moving 513 experts between CPU and GPU alone gives top-1 99.1% and KL 0.0028 ([04](04-live-expert-cache.md)).
 - Other processes on the GPU can change the output through the placement: KL 0.023 from a smaller expert cache ([14](14-benchmarking-and-traps.md)).
+- **Resident identity slot order (`PL-23`, Ling-3.2-air, 2026-11-25).** When all experts fit in VRAM (`n_res == n_expert`, 3-4 GPUs), applying profile-frequency permutation moved resident slots away from identity order (`slot == expert_id`), collapsing `R3-test` vs FP8 safetensors (`KL = 5.399`, `top1 = 11.5%`, `4.48x` unclosed thinking). Guarding `if (n_res < n_expert)` restored `KL = 0.1229`, `100.0%` (`149/149`) confident (`p >= 0.9`) top-1, and `1.06x` thinking length (5/5 cleanly closed), backed by a model-free C++ unit test.
+- **Cross-GPU stage boundary fusion (`MG-18`, Ling-3.2-air, 2026-11-25).** Fusing `add2 + rmsnorm` inside interior layers while calling separate `add2` + `rmsnorm` at GPU stage boundaries caused 1-ULP greedy divergence between 1-GPU and 4-GPU runs (`710abbff` vs `ee05493b`). Disabling cross-layer norm fusion under `--repeatable` / `--lane-parity` restored bit-exact greedy hashes (`ee05493bd54bf1c4`) across 1 GPU (0/10 GiB) and 4 GPUs (0/10 GiB/100% VRAM).
+- **Sparse-MLA INT8 KV drift (`PL-24`, Ling-3.2-air, 2026-11-25).** On a 7-MLA / 35-KDA hybrid, INT8 KV flipped 3 of 4 greedy exactness hashes (`KL 0.0001-0.016`) for only `102 MiB` saved and zero speed gain. Keep FP16 KV as the quality default on sparse-MLA hybrids.
+- **Bidirectional P2P startup probe (`MG-20`, 2026-11-26).** Direct posted-write P2P collectives must verify bidirectional transfers at startup with both `cudaMemcpyPeer` and a 1-thread `__threadfence_system()` write, falling back to bit-exact host-mapped collectives whenever the probe fails ([05](05-multi-gpu.md)).
 
 ## The release gate (Hy4 Flash)
 

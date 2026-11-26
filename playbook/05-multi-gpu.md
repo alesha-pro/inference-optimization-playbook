@@ -1,6 +1,6 @@
 # Several GPUs: layer split, TP, EP and the exchange between cards
 
-Covers Qwen3.8-Flash-Next, GLM-5.3-Flash, DeepSeek V4/V4.1 Flash, MiniMax-M3.1-Flash, Hy4 Flash, all on 4x RTX 3090 with PCIe 3.0, P2P on and without NVLink.
+Covers Qwen3.8-Flash-Next, GLM-5.3-Flash, DeepSeek V4/V4.1 Flash, MiniMax-M3.1-Flash, Hy4 Flash, Ling-3.2-air, and 280B MoE (2.3 bpw), all on 4x RTX 3090 with PCIe 3.0, P2P on and without NVLink.
 
 > **Read when:** there are 2 or more cards. **Skip when:** there is 1 card. **Ledger tags:** `#multi-gpu` `#layer-split` `#tp` `#ep`.
 
@@ -27,6 +27,10 @@ Idle cards in the pipeline can be used:
 - by MTP with 2 parts of the pipeline: the first half of the cards already computes the next position;
 - by expert parallel in prefill ([07](07-prefill.md)).
 
+### 4-GPU resident stage pipelining bug and fix (Ling-3.2-air, 2026-11-25, `PF-21`)
+
+On 4x RTX 3090 with 100% of Ling-3.2-air's 20,480 experts resident in VRAM, skipping the prefill stage-pipe activation buffer (`pf_pipe_x`) because no host-to-device expert eviction was needed forced `use_stage_pipe = false`. That serialized all 4 GPU stages and made 4 cards slower than 2 cards on 32K prompts (`2,230` vs `2,486 tok/s`). Allocating a dedicated `32 MiB/GPU` `pf_pipe_x` buffer for `ngpu >= 2` regardless of offload restored pipelined `P = 2,048`-token macro-blocks across 4 GPUs: 32K FP16-KV prefill jumped from **`2,230` to `5,439 tok/s`** (`2.44x`, `6.02 s`; `2.14x` faster than 2x 3090's `2,543 tok/s`, [07](07-prefill.md)).
+
 ## Tensor parallel (TP)
 
 | Case | Result |
@@ -43,6 +47,19 @@ Why TP combines badly with offload: a miss on any rank is on the path of every l
 The rule from the first 4 models: **if the model is fully in VRAM, TP. If experts are offloaded, layer split.**
 
 Hy4 Flash gave one counterexample. In upstream Maya v1.1.69, with a CPU lane serving the missing experts, TP under partial placement beat the layer-by-layer fallback (see "TP with partial placement" below). That is 1 model on 1 engine version, so test it on yours.
+
+### PCIe 3.0 TP=4 collective wall vs pipeline split (280B MoE, 2026-11-26, `MG-19`, `PF-22`)
+
+On 4x RTX 3090 over PCIe 3.0 without NVLink (280B MoE at 2.3 bpw), decode and long prefill pull in opposite directions:
+
+| Phase / length | `--tp 4` (tok/s) | `--tp 1` layer pipeline (tok/s) | Winner and why |
+|---|---:|---:|---|
+| Plain decode | **69.6** | 51.8 | `--tp 4` (`1.35x`): all 4 GPUs read active weights concurrently |
+| Speculative decode | **96.7** | 62.9 | `--tp 4` (`1.54x`): concurrent weight reads amortize verify |
+| 8K prefill | 1,939 | **3,816** | `--tp 1` (`1.97x`): avoids ~172 TP collectives/chunk (~32.6 GB cross-bus moves) and 4x dense GEMM replication |
+| 32K prefill | 1,931 | **4,759** | `--tp 1` (`2.46x`): pipeline keeps every PCIe 3.0 cross-hop linear instead of all-reducing every layer |
+
+Treat TP=4 as the decode/interactive choice and `--tp 1` layer-pipeline as the long-prefill choice when PCIe 3.0 lacks NVLink.
 
 ## Expert parallel (EP)
 
@@ -64,6 +81,12 @@ Details on EP in prefill are in [07](07-prefill.md).
 | Larger blocks and more threads in the push, fewer fences, sending to all neighbors at once | More parallelism did not help. One shared fence improved T=1 but hurt T≥2. Just shrinking the format from F32 to BF16 with the old flags did not remove the wait | Test the real verify widths. One short transfer between 2 cards is a poor model of simultaneous writes between 4 |
 
 The first packed query variant computed RoPE differently. Going back to the rotation function of the reference build restored bit parity at the checked positions. When you pack anything for exchange, compare against the reference before you look at speed.
+
+### Direct posted-write 2-hop P2P and startup probing (2026-11-26, `MG-20`)
+
+On 4x RTX 3090 (PCIe 3.0, 280B MoE at 2.3 bpw, TP=4), direct posted-write 2-hop P2P all-reduce paired with CUDA-graphed decode beat host-mapped bounce collectives across both phases: plain decode `~69.6` vs `68.9 tok/s`, speculative verify **`96.7` vs `66.8 tok/s`**, and TP=4 prefill `2,090` vs `979 tok/s`, while falling back cleanly with bit-exact results when P2P is unavailable.
+
+**Startup probe trap:** never trust bare `cudaDeviceCanAccessPeer` plus `cudaDeviceEnablePeerAccess` alone. Broken IOMMU/ACS PCIe topologies can report peer access as enabled and then hang or corrupt data on real writes. Verify bidirectional P2P at load with **both** `cudaMemcpyPeer` and a 1-thread direct posted-write kernel using `__threadfence_system()`, and switch to the host-mapped fallback if either fails.
 
 ## Each expert on 1 card (Hy4 Flash, upstream Maya v1.1.69)
 

@@ -2,7 +2,7 @@
 
 Covers Qwen3.8-Flash-Next (Strata), GLM-5.3-Flash, DeepSeek V4.1 Flash (Maya), Hy4 Flash, Ling-3.2-air (`maya-ling`).
 
-> **Read when:** the service starts slowly, system RAM is the limit because of one big table, or a side component such as a vision tower crowds out KV and experts. **Skip when:** loading, RAM and component VRAM are fine. **Ledger tags:** `#load` `#big-table` `#ram`.
+> **Read when:** the service starts slowly, system RAM is the limit because of one big table or NVMe expert streaming, or a side component such as a vision tower crowds out KV and experts. **Skip when:** loading, RAM and component VRAM are fine. **Ledger tags:** `#load` `#big-table` `#ram`.
 
 ## Loading
 
@@ -52,6 +52,19 @@ Several of these models carry a large n-gram embedding table next to the weights
 - 1x RTX 3090 at full 262,144 context + image: GPU 0 used 22.37 / 23.56 GiB VRAM (6,200 expert slots preserved, 0.00 GiB permanent vision VRAM, 224.4 ms encode) and produced 100% verbatim receipt OCR.
 
 **Transfer.** Use lent-VRAM block streaming whenever an occasional side component (vision encoder, audio encoder) does not run every decode step and fits one transformer block inside the GPU pool tail, with host copies ready to restore evicted expert slots.
+
+## Cold-cache cgroup v2 NVMe expert streaming: buffered vs O_DIRECT (Ling-3.2-air, 2026-11-25)
+
+**Load and control.** `Ling-3.2-air-R3-test.gguf` (58 GiB), 1x RTX 3090, real `systemd-run` `cgroup v2` hard memory limits (`MemoryMax=8G` and `MemoryMax=24G`, `MemorySwapMax=0`). Before every run, `posix_fadvise(POSIX_FADV_DONTNEED)` evicted the file from the OS page cache and `mincore()` verified `0.00%` resident pages.
+
+| Cgroup limit | `O_DIRECT` decode (tok/s) | Buffered page cache (tok/s) | Buffered gain | OOM kills |
+|---|---:|---:|---|---:|
+| `MemoryMax=8G` (3 runs) | `3.62`, `3.16`, `3.89` | `6.01`, `4.80`, `5.64` | **+45% to +66%** | 0 |
+| `MemoryMax=24G` (3 runs) | `4.49`, `3.98`, `4.81` | `8.04`, `7.75`, `9.10` | **+78% to +92%** | 0 |
+
+**Why.** Under MoE expert streaming, hot experts stay warm inside the kernel page cache within the `cgroup v2` memory cap without duplicate block reads from NVMe, while `O_DIRECT` forces repeated disk reads for recently used experts.
+
+**Decision.** Flipped the default NVMe expert streaming path to buffered page-cache reads (`--direct` opt-in; `AG-15` ❌ for `O_DIRECT` default, `AG-12` ◐). Keep `O_DIRECT` for huge sparse n-gram tables like Engram (`AG-08`) where per-request row reuse is small and OS page cache pollution crowds out pinned weights. (Linux CI note: kernel `>= 6.8` `tmpfs` `/dev/shm` natively supports `O_DIRECT` instead of returning `EINVAL`, see [14](14-benchmarking-and-traps.md).)
 
 ## Transfer checklist
 

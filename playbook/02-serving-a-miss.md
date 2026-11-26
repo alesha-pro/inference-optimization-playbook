@@ -17,6 +17,8 @@ Example (DeepSeek Maya-S, live service): 7,392 of 15,744 experts in VRAM (about 
 
 We never used disk as a tier for experts. Everything fit in RAM. A third-party project, glm53-flash-offload, kept 3 tiers (VRAM / RAM / NVMe) on one 3090 and got 17.3 tok/s with part of the experts on NVMe vs 28.2 tok/s with everything in RAM, on a host with 8 channels and PCIe 4.0 (ext). So NVMe as an expert tier is possible but costs about 40% of speed.
 
+Update (Ling-3.2-air, 2026-11-25): when system RAM is hard-capped, cold-cache NVMe expert streaming was tested directly on the 58 GiB R3-test GGUF under `systemd-run` `cgroup v2` limits (`MemoryMax=8G` and `24G`, `MemorySwapMax=0`, `0.00%` `mincore()` cold start). Buffered page-cache reads beat `O_DIRECT` by +45-66% at `8G` (`4.80-6.01` vs `3.16-3.89 tok/s`) and +78-92% at `24G` (`7.75-9.10` vs `3.98-4.81 tok/s`) with 0 OOM kills, because hot experts stay warm in the OS page cache within the cgroup cap without duplicate block reads (`AG-12`, `AG-15`, details in [12](12-loading-and-big-tables.md)).
+
 ## A miss in decode: CPU or PCIe
 
 This is the main design choice of an offloading engine. Numbers on our rig:

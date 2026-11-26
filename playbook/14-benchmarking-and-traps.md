@@ -44,6 +44,9 @@ Covers all models. This chapter is about getting numbers you can trust. What cou
 | Time by SSE chunks | 1 chunk carries several tokens. Take the engine timings |
 | Automatic budget | the same binary could place a different number of experts between runs, which affected the comparison of NVMe modes ([03](03-expert-profile-and-placement.md)) |
 | Unified code paths | 1 extra field in a struct passed by value cost 2-3% of prefill. A loop over 4 expert slots added about 0.35 ms to short decode |
+| Linux `>= 6.8` `tmpfs` supports `O_DIRECT` | unit tests on `/dev/shm` expecting `EINVAL` to exercise the buffered fallback pass silently on kernel `>= 6.8` because `tmpfs` natively accepts `O_DIRECT` |
+| Missing `__CUDA_ARCH__ >= 800` guard on Tensor Core kernels | Ampere MMA kernels compiled and ran on `sm_86`, breaking `sm_75` Turing builds silently until tested explicitly with `CMAKE_CUDA_ARCHITECTURES="75;86"` |
+| Bare `cudaDeviceCanAccessPeer` check | broken IOMMU/ACS boards can report peer access enabled and hang or fail on real writes; verify both `cudaMemcpyPeer` and a 1-thread `__threadfence_system()` posted write at load ([05](05-multi-gpu.md)) |
 
 ## Traps on a looped model with an FP8 cache (Inkling 2 Mini, 2026-11-21)
 

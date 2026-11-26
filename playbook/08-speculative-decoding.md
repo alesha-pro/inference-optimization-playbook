@@ -137,6 +137,8 @@ The verify window decides the gain, not the acceptance alone. With all experts i
 
 **Quality and rejected parameter.** Across EN, RU, Code and Edit (`256` tokens each), `--mtp --spec-k 0` matched `--spec-k 1`, `2`, `3`, and `auto` on 256/256 (100.0%) greedy token IDs (with fixed `--expert-vram-gib` or `--mtp` loaded so `blk.42` does not shift expert placement). Two bugs had broken parity and speed before the fix: a conditional `__syncthreads()` inside `if (half == 0)` in `kda_rec_window_q8_kernel` (`first_diff=3..22`), and an off-by-1 RoPE position in `mtp_draft` (fixing it lifted acceptance +5-7%). Rejected: high backoff threshold `be=0.50` on 1 GPU (`k=2`) prematurely paused drafting and dropped `1x_code` from 114.3 to 96.1 tok/s.
 
+In the final PR `#1224` (`0b14d202`) FP16-KV serving profile, `--drafting auto` pairs adaptive `blk.42` MTP with suffix lookup on repeating spans while staying off when `--spec-k 0` is requested (`105.4` and `124.4 tok/s` plain decode on 2x and 4x RTX 3090). All 8/12/16 GB VRAM emulations kept trunk start-plans invariant whether MTP was enabled or disabled.
+
 ## Transfer checklist
 
 1. Fit the verify cost per width on your engine and placement. Include the miss term if experts are offloaded.

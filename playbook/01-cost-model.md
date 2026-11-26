@@ -56,6 +56,8 @@ The useful unit of VRAM is how many experts fit in it. That depends on bits per 
 
 This elasticity drops once misses are cheap. On DeepSeek after all optimizations the CPU part was ~10% of a round, and +10 GB of VRAM for experts gives only about +1.8% decode (calc). At that point plain GPU work gave more: moving the Q8 matvec to int8 tensor cores gave +5.6% decode, bit for bit ([mw00/project-maya#810](https://github.com/mw00/project-maya/pull/810)).
 
+On sparse-MLA hybrids (Ling-3.2-air: 7 MLA layers vs 35 KDA layers), switching 32K context from FP16 KV to INT8 KV frees only 102 MiB (40 of 20,480 expert slots). Quiet alternated 1x RTX 3090 `--bench` runs measured zero speed gain (`69.1 / 69.2 tok/s` FP16 vs `69.1 / 68.0 tok/s` INT8; 30K-filled context `56.14` vs `56.18 tok/s`), while INT8 KV flipped 3 of 4 greedy exactness hashes (KL `0.0001-0.016`). Keep FP16 KV default on sparse-MLA hybrids and use INT8 KV only when context capacity demands it (`PL-24`).
+
 **Before you free VRAM for experts, compute what share of token time goes to misses right now.**
 
 ## Know the ceiling before you start

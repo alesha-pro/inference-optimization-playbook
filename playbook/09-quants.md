@@ -1,6 +1,6 @@
 # Quants: bits vs the number of experts in VRAM
 
-Covers Qwen3.8-Flash-Next, DeepSeek V4.1 Flash, GLM-5.3-Flash, Hy4 Flash, Mirai quants of Qwen.
+Covers Qwen3.8-Flash-Next, DeepSeek V4.1 Flash, GLM-5.3-Flash, Hy4 Flash, Mirai quants of Qwen, Ling-3.2-air, and 2-bit IQ2 MoE kernels.
 
 > **Read when:** you choose the bits for the experts or think about mixing quants. **Skip when:** the quant is fixed by the task. **Ledger tags:** `#quant`.
 
@@ -75,6 +75,18 @@ Ampere has no FP4 hardware. The kernel loads the 4-bit codes and their sub-block
 - A single warp on 16 rows was slower than the scalar kernel (100 against 118 tok/s): it waits for a block's bytes before asking for the next. 8 warps on the same 16 rows, each a stride of the row, with the next block loaded ahead, read 745 GB/s: 121.2 → 127.2 tok/s.
 - The input as one FP16 value changed the top token in 9 of 399 forced positions; as 2 FP16 limbs (hi + lo) in 2 of the 8 MMA columns, which costs nothing, in 5 of 399, median KL 5.7e-5, less than the tensor-core attention's own change on that text (6 of 399, 1.7e-4). 96 GSM8K questions: 74 solved, 73 with the scalar kernels.
 - The official checkpoint keeps the experts of layers 0-19 in NVFP4, those of layers 20-23 in MXFP8 and the dense part in BF16. A requant of the experts to another 4-bit format is a double quantization with nothing to win on speed; going below 4 bits (for 12 GB cards) has to be measured as a quality change.
+
+## 2-bit IQ2_XS / IQ2_XXS MoE kernels: Q8_1 DP4A, full-warp MMA and AVX2 (2026-11-26)
+
+On 280B MoE models quantized to 2.3 bpw (`IQ2_XS` / `IQ2_XXS`) across 4x RTX 3090 (`sm_86`) and Zen 2 (EPYC 7642):
+
+- **Bit-invariant `Q8_1 __dp4a` decode (`QP-17`).** Quantizing activations per row to `Q8_1` with `__dp4a` and fixed-order `__fadd_rn` accumulation cut per-call decode latency by `-22%` to `-42%` vs BF16-activation scalar IQ2 dequantization. Keeping the reduction order fixed preserved `n=1 == verify_window` 100% bit-exact (`0/2048` bit diffs) with `< 0.001` KL vs the FP64 reference.
+- **Full-warp `F16_SMEM` `uint4` prefill MMA and `sm_75` guard (`QP-18`).** For IQ2/IQ3 prefill on `sm_80+` Ampere Tensor Cores, widening the tile (`kTK=32 -> 64`) so all 256 threads in a block cooperatively dequantize into shared memory via vectorized `uint4` stores cut expert prefill latency by ~2.4-3.3x vs leaving half the block idle. Always guard Ampere Tensor Core MMA blocks with `__CUDA_ARCH__ >= 800`: missing guards let `sm_86` builds pass while silently breaking `sm_75` Turing targets until compiled with `CMAKE_CUDA_ARCHITECTURES="75;86"`.
+- **AVX2+FMA CPU offload parity (`MS-17`).** If an engine ships only AVX-512 plus scalar CPU offload paths, Zen 2 (EPYC 7642) and AVX2-only hosts fall back to scalar execution, losing 9-12x on prefill and 2x+ on decode until an explicit AVX2+FMA lane is added ([06](06-cpu-and-ram.md)).
+
+## Sparse-MLA hybrid KV quantization: FP16 vs INT8 (Ling-3.2-air, 2026-11-25, `PL-24`)
+
+On Ling-3.2-air (only 7 gated MLA layers vs 35 KDA linear-attention layers), switching 32K context from FP16 KV to INT8 KV saves only `102 MiB` (40 of 20,480 expert slots). Alternated quiet 1x RTX 3090 `--bench` runs measured zero speed gain: `69.1 / 69.2 tok/s` (FP16) vs `69.1 / 68.0 tok/s` (INT8), and `56.14` vs `56.18 tok/s` at 30K-filled context. Meanwhile INT8 KV flipped 3 of 4 greedy exactness hashes (`KL 0.0001-0.016`). Keep FP16 KV as the default on sparse-MLA hybrids and leave INT8 KV as an opt-in knob for maximum context length.
 
 ## Transfer checklist
 

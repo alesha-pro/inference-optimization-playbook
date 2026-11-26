@@ -127,6 +127,14 @@ On 2x RTX 3090, a 16K NIAH run reached 3,171.1 tok/s and a 250K NIAH run (249,99
 
 **Negative result: 2-GPU EP prefill relay (`--ep-prefill`).** On 2x RTX 3090 with R3 (~73% of experts resident in VRAM), PCIe activation gather and helper synchronization cost more than splitting the remaining ~27% cold experts over two PCIe links. Micro-batch stage pipelining (`--no-ep`) beat `--ep-prefill` and stayed the default, with EP left behind an opt-in flag. Revisit when resident share is low enough that cold-expert DMA dominates prefill time (as on DeepSeek at ~47% residency).
 
+**4-GPU resident stage pipelining fix (2026-11-25, `PF-21`).** On 4x RTX 3090 (20,480/20,480 experts 100% resident in VRAM), skipping the stage-pipe activation buffer (`pf_pipe_x`) because no H2D expert eviction was needed forced `use_stage_pipe = false`. That serialized all 4 GPU stages and made 4 cards slower than 2 cards on 32K prompts (`2,230` vs `2,486 tok/s`). Allocating a dedicated `32 MiB/GPU` `pf_pipe_x` buffer for `ngpu >= 2` restored pipelined `P = 2,048`-token macro-blocks across 4 GPUs: 32K FP16-KV prefill jumped from **`2,230` to `5,439 tok/s`** (`2.44x`, `6.02 s`; `2.14x` faster than 2x 3090's `2,543 tok/s`).
+
+## PCIe 3.0 TP=4 collective wall vs pipeline split in prefill (2026-11-26, `PF-22`, `QP-18`)
+
+On 4x RTX 3090 over PCIe 3.0 without NVLink (280B MoE at 2.3 bpw), `--tp 1` layer-pipeline split beat `--tp 4` on long prefill by **2.0-2.5x** (`3,816` vs `1,939 tok/s` at 8K; `4,759` vs `1,931 tok/s` at 32K). Layer pipelining avoids ~172 TP collectives per prompt chunk (~32.6 GB of cross-bus moves on an 8K prompt) and eliminates 4x replication of dense attention and router GEMMs ([05](05-multi-gpu.md)).
+
+On the compute side of 2-bit/3-bit (`IQ2`/`IQ3`) expert prefill on Ampere (`sm_80+`), widening the tile (`kTK=32 -> 64`) so all 256 threads in the block cooperatively dequantize into shared memory via `uint4` stores (`F16_SMEM`) before Tensor Core MMA cuts expert prefill latency by ~2.4-3.3x vs leaving half the block idle ([09](09-quants.md), `QP-18`).
+
 ## Transfer checklist
 
 1. Count bytes moved CPU→GPU per fresh token. If the same expert weights cross PCIe again and again, that is the first target.

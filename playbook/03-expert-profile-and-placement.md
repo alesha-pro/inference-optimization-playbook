@@ -1,6 +1,6 @@
 # Hot experts: profile, domain, placement
 
-Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash.
+Covers DeepSeek V4.1 Flash, GLM-5.3-Flash, MiniMax-M3.1-Flash, Hy4 Flash, Ling-3.2-air.
 
 > **Read when:** you choose which experts stay in VRAM, or a profile gives fewer hits than expected. **Skip when:** routing has weak skew (go to 04), or everything fits in VRAM. **Ledger tags:** `#offload` `#strong-skew`.
 
@@ -104,6 +104,7 @@ If the gap "your profile vs ideal" is large (ours was 8 points, the 10 point thr
 - **Drafter counters can be zero.** In DeepSeek the drafter block counters were 0 in all 10 profiles we checked, so the rule "keep experts that give 99% of routes" never fired for it. The drafter went to GPU0 entirely and its VRAM cap cut blindly by index.
 - **One profile for 2 quants.** We used the Maya-S profile for the UD quant of the same model. The routers are dense and should match. This was confirmed indirectly on 1 text, not checked directly.
 - **Someone else's stats.** Our GLM runs in Maya had profile accumulation turned off, and warmup used the upstream profile. We found this only during the review.
+- **Resident identity slot order trap (Ling-3.2-air, 2026-11-25, `PL-23`).** When all experts fit in VRAM (`n_res == n_expert`, 3-4 GPUs on Ling-3.2-air), applying profile-frequency permutation moved resident slots away from identity order (`slot == expert_id`), breaking all-VRAM fast paths. `R3-test` quality collapsed vs original FP8 safetensors (`KL = 5.399`, `top1 = 11.5%`, runaway unclosed thinking at `4.48x` length). Guarding placement with `if (n_res < n_expert)` preserved identity order on 100%-resident runs and restored `KL = 0.1229`, `100.0%` (`149/149`) confident top-1, and `1.06x` thinking length (5/5 cleanly closed), backed by a model-free C++ unit test that catches slot permutation offline.
 
 ## Allocate global KV as the request grows (Inkling 2 Mini, 2026-11-21)
 

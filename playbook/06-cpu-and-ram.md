@@ -49,6 +49,7 @@ On a 2-socket machine or with NPS4 this can be different (the cross-socket link 
 - Splitting CPU lane work by dot products instead of by rows (MiniMax): +16-23% in speculation windows. The reason: 40% of the lane time was waiting for the slowest thread (groups with a repeated expert are 2-3x heavier).
 - Thread count: Strata 0.1.45 on 1 card set 46 threads on 48 cores by itself and dropped to 20-60 tok/s. 32 threads gave ~75, version 0.2 sets 32 itself and holds ~87. **The CPU lane thread count is critical.** SMT does not help.
 - Row prefetch on deep context (Hy4 Flash): at depth, the time of a request to the CPU lane grew from 0.39 to 0.88 ms. Prefetching rows brought it back to 0.33 ms. With 40, 46 and 80 threads the results were close, 67-70 tok/s. If one more thread gives nothing, look at RAM bandwidth and CPU cache misses on a long request.
+- AVX2+FMA CPU offload lane on Zen 2 (`MS-17`, 2026-11-26): when an engine ships only AVX-512 plus a scalar fallback for 2-bit/3-bit expert offload, AMD Zen 2 (EPYC 7642) and AVX2-only desktops drop onto the scalar path, losing 9-12x on prefill and 2x+ on decode (observed on a 280B 2.3 bpw MoE). Implement an explicit AVX2+FMA lane and verify dispatch at build or startup so AVX-512-only code never degrades silently to scalar.
 
 Note the 2 prefetch results. Software prefetch in the DeepSeek CPU lane gave -1 to +3%. Row prefetch on Hy4 at depth took a CPU lane request from 0.88 back to 0.33 ms. We did not test why they differ.
 
